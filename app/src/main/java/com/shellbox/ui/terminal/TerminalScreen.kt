@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
@@ -46,6 +47,13 @@ fun TerminalScreen(
     var ctrlPressed by remember { mutableStateOf(false) }
     var altPressed by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    fun requestInputFocus() {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
 
     // When ctrl is active, intercept next character
     LaunchedEffect(inputText) {
@@ -127,7 +135,8 @@ fun TerminalScreen(
                     else -> {
                         TerminalOutput(
                             output = activeTab.outputBuffer,
-                            onSendInput = { viewModel.sendInput(it) }
+                            onSendInput = { viewModel.sendInput(it) },
+                            onRequestKeyboard = { requestInputFocus() }
                         )
                     }
                 }
@@ -151,7 +160,15 @@ fun TerminalScreen(
                 onSlash = viewModel::sendSlash,
                 onBackslash = viewModel::sendBackslash,
                 inputText = inputText,
-                onInputChange = { inputText = it }
+                onInputChange = { inputText = it },
+                onRequestKeyboard = { requestInputFocus() }
+            )
+
+            BasicHiddenInput(
+                value = inputText,
+                onValueChange = { inputText = it },
+                focusRequester = focusRequester,
+                onFocused = { keyboardController?.show() }
             )
         }
     }
@@ -237,7 +254,11 @@ private fun TerminalTabRow(
 }
 
 @Composable
-private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
+private fun TerminalOutput(
+    output: String,
+    onSendInput: (String) -> Unit,
+    onRequestKeyboard: () -> Unit
+) {
     val scrollState = rememberScrollState()
 
     LaunchedEffect(output) {
@@ -251,6 +272,9 @@ private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
                 .background(Color.White)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 10.dp, vertical = 8.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onRequestKeyboard() })
+                }
         ) {
             Text(
                 text = output.ifEmpty { "$ " },
@@ -282,26 +306,14 @@ private fun VirtualKeyboard(
     onSlash: () -> Unit,
     onBackslash: () -> Unit,
     inputText: String,
-    onInputChange: (String) -> Unit
+    onInputChange: (String) -> Unit,
+    onRequestKeyboard: () -> Unit
 ) {
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    fun requestInputFocus() {
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-
-    // Auto-request focus when keyboard area is composed so IME opens
-    LaunchedEffect(Unit) {
-        requestInputFocus()
-    }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF0F4FF))
-            .clickable { requestInputFocus() }
+            .clickable { onRequestKeyboard() }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -345,16 +357,6 @@ private fun VirtualKeyboard(
             VKey("End", onClick = onEnd, modifier = Modifier.weight(1f))
         }
 
-        // Hidden text field to capture keyboard input
-        // We use a transparent field that receives text input
-        Box(modifier = Modifier.height(1.dp)) {
-            BasicHiddenInput(
-                value = inputText,
-                onValueChange = onInputChange,
-                focusRequester = focusRequester,
-                onFocused = { keyboardController?.show() }
-            )
-        }
     }
 }
 
@@ -410,10 +412,11 @@ private fun BasicHiddenInput(
     androidx.compose.foundation.text.BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
         modifier = Modifier
             .size(1.dp)
             .focusRequester(focusRequester)
+            .focusTarget()
             .background(Color.Transparent)
             .onFocusChanged { if (it.isFocused) onFocused() }
     )
