@@ -7,13 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import net.schmizz.sshj.AndroidConfig
 import net.schmizz.sshj.SSHClient
-import net.schmizz.sshj.common.IOUtils
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider
 import net.schmizz.sshj.connection.channel.direct.Session as SshJSession
-import java.io.File
-import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import javax.inject.Inject
@@ -46,12 +44,14 @@ class SshManager @Inject constructor() {
 
     suspend fun connect(server: Server): SshResult = withContext(Dispatchers.IO) {
         try {
-            // 注册 SpongyCastle 作为首选 Provider，解决 Android BC 不支持 X25519/SHA-256 的问题
-            val sc = org.spongycastle.jce.provider.BouncyCastleProvider()
-            if (java.security.Security.getProvider(sc.name) == null) {
-                java.security.Security.insertProviderAt(sc, 1)
+            // AndroidConfig 是 sshj 为 Android 适配的配置，会跳过不支持的算法
+            val config = AndroidConfig()
+            // 双保险：额外过滤掉任何仍含 X25519 的 kex（以防 AndroidConfig 版本差异）
+            config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
+                !factory.name.contains("25519", ignoreCase = true)
             }
-            val client = SSHClient()
+
+            val client = SSHClient(config)
             client.addHostKeyVerifier(PromiscuousVerifier())
             client.connect(server.host, server.port)
 
