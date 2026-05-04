@@ -1,0 +1,8 @@
+-keep class com.shellbox.data.model.** { *; }
+-keep class net.schmizz.** { *; }
+-keep class com.hierynomus.** { *; }
+-dontwarn org.slf4j.**
+-dontwarn org.bouncycastle.**
+-keep class org.bouncycastle.** { *; }
+-keepattributes *Annotation*
+-keepattributes Signature
