@@ -99,6 +99,8 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.sshj)
+    implementation(libs.spongycastle.core)
+    implementation(libs.spongycastle.prov)
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)
 }
