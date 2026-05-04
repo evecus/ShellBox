@@ -33,6 +33,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
@@ -72,6 +77,7 @@ fun TerminalScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0),
         topBar = {
             Column {
                 TopAppBar(
@@ -108,35 +114,44 @@ fun TerminalScreen(
         },
         containerColor = Color.White
     ) { padding ->
-        Column(
+        val focusRequester = remember { FocusRequester() }
+        val keyboardController = LocalSoftwareKeyboardController.current
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Terminal Output Area
-            Box(modifier = Modifier.weight(1f)) {
-                val activeTab = uiState.activeTab
+            // Terminal output area — tapping calls the IME
+            val activeTab = uiState.activeTab
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 88.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            focusRequester.requestFocus()
+                            keyboardController?.show()
+                        }
+                    }
+            ) {
                 when {
-                    activeTab == null -> {
-                        EmptyTerminalPlaceholder(onBack)
-                    }
-                    activeTab.isConnecting -> {
-                        ConnectingIndicator(activeTab.label)
-                    }
-                    activeTab.errorMessage != null -> {
-                        ErrorDisplay(activeTab.errorMessage, onBack)
-                    }
-                    else -> {
-                        TerminalOutput(
-                            output = activeTab.outputBuffer,
-                            onSendInput = { viewModel.sendInput(it) }
-                        )
-                    }
+                    activeTab == null -> EmptyTerminalPlaceholder(onBack)
+                    activeTab.isConnecting -> ConnectingIndicator(activeTab.label)
+                    activeTab.errorMessage != null -> ErrorDisplay(activeTab.errorMessage, onBack)
+                    else -> TerminalOutput(
+                        output = activeTab.outputBuffer,
+                        onSendInput = { viewModel.sendInput(it) }
+                    )
                 }
             }
 
-            // Virtual Keyboard
+            // Virtual keyboard pinned to bottom; imePadding pushes it above the IME
             VirtualKeyboard(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .imePadding(),
                 ctrlPressed = ctrlPressed,
                 altPressed = altPressed,
                 onCtrlToggle = { ctrlPressed = !ctrlPressed; altPressed = false },
@@ -153,7 +168,9 @@ fun TerminalScreen(
                 onSlash = viewModel::sendSlash,
                 onBackslash = viewModel::sendBackslash,
                 inputText = inputText,
-                onInputChange = { inputText = it }
+                onInputChange = { inputText = it },
+                focusRequester = focusRequester,
+                keyboardController = keyboardController
             )
         }
     }
@@ -269,6 +286,7 @@ private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
 
 @Composable
 private fun VirtualKeyboard(
+    modifier: Modifier = Modifier,
     ctrlPressed: Boolean,
     altPressed: Boolean,
     onCtrlToggle: () -> Unit,
@@ -285,14 +303,12 @@ private fun VirtualKeyboard(
     onSlash: () -> Unit,
     onBackslash: () -> Unit,
     inputText: String,
-    onInputChange: (String) -> Unit
+    onInputChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
 ) {
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .background(Color(0xFFF0F4FF))
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -310,10 +326,6 @@ private fun VirtualKeyboard(
             VKey("→", onClick = { onArrow(ArrowDirection.RIGHT) }, modifier = Modifier.weight(0.9f))
             VKey("PgU", onClick = onPageUp, modifier = Modifier.weight(1f))
             VKey("PgD", onClick = onPageDown, modifier = Modifier.weight(1f))
-            VKey("⌨", onClick = {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            }, modifier = Modifier.weight(1f))
         }
 
         // Row 2: CTRL, ALT, special chars, Home, End
