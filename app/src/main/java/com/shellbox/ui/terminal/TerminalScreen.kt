@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -20,8 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -281,10 +284,18 @@ private fun VirtualKeyboard(
     inputText: String,
     onInputChange: (String) -> Unit
 ) {
+    val focusRequester = remember { FocusRequester() }
+
+    // Auto-request focus when keyboard area is composed so IME opens
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF0F4FF))
+            .clickable { focusRequester.requestFocus() }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -333,7 +344,8 @@ private fun VirtualKeyboard(
         Box(modifier = Modifier.height(0.dp)) {
             BasicHiddenInput(
                 value = inputText,
-                onValueChange = onInputChange
+                onValueChange = onInputChange,
+                focusRequester = focusRequester
             )
         }
     }
@@ -381,13 +393,19 @@ private fun VKey(
 }
 
 @Composable
-private fun BasicHiddenInput(value: String, onValueChange: (String) -> Unit) {
+private fun BasicHiddenInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    focusRequester: FocusRequester
+) {
     // Invisible text field for capturing hardware keyboard / IME input
     androidx.compose.foundation.text.BasicTextField(
         value = value,
         onValueChange = onValueChange,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         modifier = Modifier
             .size(1.dp)
+            .focusRequester(focusRequester)
             .background(Color.Transparent)
     )
 }
