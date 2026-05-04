@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.IOUtils
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -46,7 +47,12 @@ class SshManager @Inject constructor() {
 
     suspend fun connect(server: Server): SshResult = withContext(Dispatchers.IO) {
         try {
-            val client = SSHClient()
+            val config = DefaultConfig()
+            // 移除含 X25519 的 kex，避免 Android BC 不支持该算法
+            config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
+                !factory.name.contains("25519", ignoreCase = true)
+            }
+            val client = SSHClient(config)
             client.addHostKeyVerifier(PromiscuousVerifier())
             client.connect(server.host, server.port)
 
