@@ -290,24 +290,14 @@ private fun VirtualKeyboard(
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    // Auto-request focus + show IME when keyboard area is composed
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF0F4FF))
-            .clickable {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-            }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Row 1: ESC, TAB, Arrow keys, PgUp, PgDn
+        // Row 1: ESC, TAB, Arrow keys, PgUp, PgDn, ⌨ (show IME)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -320,6 +310,10 @@ private fun VirtualKeyboard(
             VKey("→", onClick = { onArrow(ArrowDirection.RIGHT) }, modifier = Modifier.weight(0.9f))
             VKey("PgU", onClick = onPageUp, modifier = Modifier.weight(1f))
             VKey("PgD", onClick = onPageDown, modifier = Modifier.weight(1f))
+            VKey("⌨", onClick = {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }, modifier = Modifier.weight(1f))
         }
 
         // Row 2: CTRL, ALT, special chars, Home, End
