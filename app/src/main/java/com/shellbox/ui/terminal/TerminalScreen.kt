@@ -27,6 +27,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -39,6 +41,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
@@ -53,30 +56,46 @@ fun TerminalScreen(
     val uiState by viewModel.uiState.collectAsState()
     var ctrlPressed by remember { mutableStateOf(false) }
     var altPressed by remember { mutableStateOf(false) }
-    var inputText by remember { mutableStateOf("") }
+    // Use TextFieldValue so we can detect backspace via selection/composition
+    var inputValue by remember { mutableStateOf(TextFieldValue("")) }
     var showVirtualKeyboard by remember { mutableStateOf(true) }
 
-    // When ctrl is active, intercept next character
-    LaunchedEffect(inputText) {
-        if (inputText.isNotEmpty()) {
-            when {
-                ctrlPressed -> {
-                    val lastChar = inputText.last()
-                    viewModel.sendCtrlKey(lastChar)
-                    ctrlPressed = false
-                }
-                altPressed -> {
-                    val lastChar = inputText.last()
-                    viewModel.sendAlt(lastChar)
-                    altPressed = false
-                }
-                else -> {
-                    viewModel.sendInput(inputText)
+    // Handle input changes: detect backspace or new text
+    val prevInputRef = remember { mutableStateOf("") }
+    LaunchedEffect(inputValue) {
+        val newText = inputValue.text
+        val oldText = prevInputRef.value
+        when {
+            newText.length < oldText.length -> {
+                // User pressed backspace — how many chars deleted
+                val deleted = oldText.length - newText.length
+                repeat(deleted) { viewModel.sendBackspace() }
+            }
+            newText.length > oldText.length -> {
+                val added = newText.substring(oldText.length)
+                when {
+                    ctrlPressed -> {
+                        added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }
+                        ctrlPressed = false
+                    }
+                    altPressed -> {
+                        added.lastOrNull()?.let { viewModel.sendAlt(it) }
+                        altPressed = false
+                    }
+                    else -> viewModel.sendInput(added)
                 }
             }
-            inputText = ""
+        }
+        prevInputRef.value = newText
+        // Keep field logically empty so it always accepts input but we track delta
+        if (newText.isNotEmpty()) {
+            inputValue = TextFieldValue("")
+            prevInputRef.value = ""
         }
     }
+
+    // Title: show active tab host/label instead of "Terminal"
+    val titleText = uiState.activeTab?.label ?: "Terminal"
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -85,9 +104,11 @@ fun TerminalScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            "Terminal",
+                            titleText,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     },
                     navigationIcon = {
@@ -110,8 +131,8 @@ fun TerminalScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
 
-                // Tabs
-                if (uiState.tabs.isNotEmpty()) {
+                // Tabs row — only show when there are multiple tabs
+                if (uiState.tabs.size > 1) {
                     TerminalTabRow(
                         tabs = uiState.tabs,
                         activeIndex = uiState.activeTabIndex,
@@ -126,17 +147,19 @@ fun TerminalScreen(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
-        Box(
+        // The whole content area uses imePadding so it shrinks when IME appears
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()   // <-- key fix: entire column moves up with keyboard
         ) {
-            // Terminal output area — tapping calls the IME
+            // Terminal output takes all remaining space above the virtual keyboard
             val activeTab = uiState.activeTab
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = if (showVirtualKeyboard) 88.dp else 0.dp)
+                    .weight(1f)
+                    .fillMaxWidth()
                     .pointerInput(Unit) {
                         detectTapGestures {
                             focusRequester.requestFocus()
@@ -155,34 +178,33 @@ fun TerminalScreen(
                 }
             }
 
-            // Virtual keyboard pinned to bottom; imePadding pushes it above the IME
-            if (showVirtualKeyboard) VirtualKeyboard(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .imePadding(),
-                ctrlPressed = ctrlPressed,
-                altPressed = altPressed,
-                isDisconnected = uiState.activeTab?.isDisconnected == true,
-                onCtrlToggle = { ctrlPressed = !ctrlPressed; altPressed = false },
-                onAltToggle = { altPressed = !altPressed; ctrlPressed = false },
-                onReconnect = { viewModel.reconnect(uiState.activeTabIndex) },
-                onEsc = viewModel::sendEsc,
-                onTab = viewModel::sendTab,
-                onArrow = viewModel::sendArrow,
-                onPageUp = viewModel::sendPageUp,
-                onPageDown = viewModel::sendPageDown,
-                onHome = viewModel::sendHome,
-                onEnd = viewModel::sendEnd,
-                onPipe = viewModel::sendPipe,
-                onTilde = viewModel::sendTilde,
-                onSlash = viewModel::sendSlash,
-                onBackslash = viewModel::sendBackslash,
-                inputText = inputText,
-                onInputChange = { inputText = it },
-                focusRequester = focusRequester,
-                keyboardController = keyboardController
-            )
+            // Virtual keyboard pinned below terminal output, above IME
+            if (showVirtualKeyboard) {
+                VirtualKeyboard(
+                    modifier = Modifier.fillMaxWidth(),
+                    ctrlPressed = ctrlPressed,
+                    altPressed = altPressed,
+                    isDisconnected = uiState.activeTab?.isDisconnected == true,
+                    onCtrlToggle = { ctrlPressed = !ctrlPressed; altPressed = false },
+                    onAltToggle = { altPressed = !altPressed; ctrlPressed = false },
+                    onReconnect = { viewModel.reconnect(uiState.activeTabIndex) },
+                    onEsc = viewModel::sendEsc,
+                    onTab = viewModel::sendTab,
+                    onArrow = viewModel::sendArrow,
+                    onPageUp = viewModel::sendPageUp,
+                    onPageDown = viewModel::sendPageDown,
+                    onHome = viewModel::sendHome,
+                    onEnd = viewModel::sendEnd,
+                    onPipe = viewModel::sendPipe,
+                    onTilde = viewModel::sendTilde,
+                    onSlash = viewModel::sendSlash,
+                    onBackslash = viewModel::sendBackslash,
+                    inputValue = inputValue,
+                    onInputChange = { inputValue = it },
+                    focusRequester = focusRequester,
+                    keyboardController = keyboardController
+                )
+            }
         }
     }
 }
@@ -198,7 +220,7 @@ private fun TerminalTabRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFFF5F8FF))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         itemsIndexed(tabs) { index, tab ->
@@ -219,37 +241,37 @@ private fun TerminalTabRow(
                     .clip(RoundedCornerShape(10.dp))
                     .background(bgColor)
                     .clickable { onSelectTab(index) }
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (tab.isConnecting) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
+                        modifier = Modifier.size(8.dp),
                         color = textColor,
                         strokeWidth = 1.5.dp
                     )
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(if (tab.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336))
                     )
                 }
-                Spacer(Modifier.width(7.dp))
+                Spacer(Modifier.width(5.dp))
                 Text(
                     tab.label,
                     color = textColor,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 120.dp)
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(5.dp))
                 Box(
                     modifier = Modifier
-                        .size(16.dp)
+                        .size(14.dp)
                         .clip(CircleShape)
                         .clickable { onCloseTab(index) },
                     contentAlignment = Alignment.Center
@@ -258,7 +280,7 @@ private fun TerminalTabRow(
                         Icons.Filled.Close,
                         contentDescription = "关闭",
                         tint = textColor.copy(alpha = 0.7f),
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(10.dp)
                     )
                 }
             }
@@ -266,13 +288,20 @@ private fun TerminalTabRow(
     }
 }
 
-// Strip common ANSI/VT100 escape sequences including bracket-paste mode codes
+// Strip ANSI/VT100 escape sequences including bracketed-paste mode [?2004h/l and other ? sequences
 private fun stripAnsi(raw: String): String {
     return raw
-        .replace(Regex("\u001B\\[[0-9;]*[A-Za-z]"), "")
+        // Handle bracketed paste mode and all CSI sequences with optional ? prefix: ESC [ ? ... letter
+        .replace(Regex("\u001B\\[\\??[0-9;]*[A-Za-z]"), "")
+        // OSC sequences
         .replace(Regex("\u001B\\][^\u001B]*(\u001B\\\\|\u0007)"), "")
+        // Character set designations
         .replace(Regex("\u001B[()][AB012]"), "")
+        // Keypad mode etc.
         .replace(Regex("\u001B[=>]"), "")
+        // Bare ESC + single char (e.g. ESC M)
+        .replace(Regex("\u001B[A-Za-z]"), "")
+        // Normalize line endings
         .replace("\r\n", "\n")
         .replace("\r", "")
 }
@@ -286,7 +315,6 @@ private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
         scrollState.animateScrollTo(scrollState.maxValue)
     }
 
-    // Blink cursor every 500ms
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(500)
@@ -307,7 +335,6 @@ private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
             Text(
                 text = buildAnnotatedString {
                     append(cleaned)
-                    // Cursor block
                     if (showCursor) {
                         pushStyle(
                             androidx.compose.ui.text.SpanStyle(
@@ -349,25 +376,25 @@ private fun VirtualKeyboard(
     onTilde: () -> Unit,
     onSlash: () -> Unit,
     onBackslash: () -> Unit,
-    inputText: String,
-    onInputChange: (String) -> Unit,
+    inputValue: TextFieldValue,
+    onInputChange: (TextFieldValue) -> Unit,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
 ) {
     Column(
         modifier = modifier
             .background(Color(0xFFF0F4FF))
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Reconnect banner shown when session dropped
+        // Reconnect banner
         if (isDisconnected) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFFFFF3E0))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -379,7 +406,7 @@ private fun VirtualKeyboard(
                 )
                 TextButton(
                     onClick = onReconnect,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
                 ) {
                     Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
                 }
@@ -389,7 +416,7 @@ private fun VirtualKeyboard(
         // Row 1: ESC, TAB, Arrow keys, PgUp, PgDn
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             VKey("ESC", onClick = onEsc, modifier = Modifier.weight(1.2f))
             VKey("TAB", onClick = onTab, modifier = Modifier.weight(1.2f))
@@ -404,7 +431,7 @@ private fun VirtualKeyboard(
         // Row 2: CTRL, ALT, special chars, Home, End
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             VKey(
                 label = "CTRL",
@@ -426,9 +453,9 @@ private fun VirtualKeyboard(
             VKey("End", onClick = onEnd, modifier = Modifier.weight(1f))
         }
 
-        // Hidden text field to capture keyboard input (alpha=0, real size so IME fires)
+        // Hidden input field — uses TextFieldValue so backspace is detectable
         BasicHiddenInput(
-            value = inputText,
+            value = inputValue,
             onValueChange = onInputChange,
             focusRequester = focusRequester
         )
@@ -455,13 +482,13 @@ private fun VKey(
 
     Box(
         modifier = modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(34.dp)
+            .clip(RoundedCornerShape(7.dp))
             .background(bgColor)
             .border(
                 width = if (isActive) 0.dp else 1.dp,
                 color = if (isActive) Color.Transparent else Color(0xFFDDE3EA),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(7.dp)
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -478,18 +505,25 @@ private fun VKey(
 
 @Composable
 private fun BasicHiddenInput(
-    value: String,
-    onValueChange: (String) -> Unit,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     focusRequester: FocusRequester
 ) {
-    // Must have real non-zero size so Android's IME respects the focus request.
-    // Alpha = 0 keeps it visually invisible.
+    // Use TextFieldValue so we can diff old vs new text and detect backspace.
+    // Height=1.dp so IME fires, alpha=0 keeps it invisible.
+    // KeyboardCapitalization.None + KeyboardType.Ascii prevents auto-correct/capitalize.
+    // ImeAction.None keeps the "Done" button from closing IME unexpectedly.
     androidx.compose.foundation.text.BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Ascii,
+            capitalization = KeyboardCapitalization.None,
+            autoCorrect = false,
+            imeAction = ImeAction.None
+        ),
         modifier = Modifier
-            .width(1.dp)
+            .fillMaxWidth()
             .height(1.dp)
             .focusRequester(focusRequester)
             .alpha(0f)
@@ -512,7 +546,9 @@ private fun ConnectingIndicator(label: String) {
 @Composable
 private fun ErrorDisplay(error: String, onBack: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
