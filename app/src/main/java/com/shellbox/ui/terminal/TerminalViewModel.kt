@@ -17,10 +17,12 @@ import javax.inject.Inject
 data class TabState(
     val sessionId: String,
     val label: String,
+    val host: String = "",
     val outputBuffer: String = "",
     val isConnecting: Boolean = false,
-    val errorMessage: String? = null,
-    val isConnected: Boolean = false
+    val errorMessage: String? = null,   // null = ok, non-null = hard failure (never connected)
+    val isConnected: Boolean = false,
+    val isDisconnected: Boolean = false // was connected, then dropped
 )
 
 data class TerminalUiState(
@@ -40,34 +42,45 @@ class TerminalViewModel @Inject constructor(
 
     // Stores active sessions keyed by tabId
     private val sessionMap = mutableMapOf<String, SshSession>()
+    private val reconnectMap = mutableMapOf<String, suspend () -> SshResult>()
 
     fun connectQuick(quickConnect: QuickConnect) {
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = "${quickConnect.username}@${quickConnect.host}"
-        addTab(tabId, label)
+        addTab(tabId, label, host = quickConnect.host)
         doConnect(tabId) { sshManager.connect(quickConnect) }
     }
 
     fun connectServer(server: Server) {
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = server.name
-        addTab(tabId, label)
+        addTab(tabId, label, host = server.host)
         doConnect(tabId) { sshManager.connect(server) }
     }
 
-    private fun addTab(tabId: String, label: String) {
-        val newTab = TabState(sessionId = tabId, label = label, isConnecting = true)
+    private fun addTab(tabId: String, label: String, host: String = "") {
+        val newTab = TabState(sessionId = tabId, label = label, host = host, isConnecting = true)
         val newTabs = _uiState.value.tabs + newTab
         _uiState.update { it.copy(tabs = newTabs, activeTabIndex = newTabs.lastIndex) }
     }
 
     private fun doConnect(tabId: String, connectFn: suspend () -> SshResult) {
+        reconnectMap[tabId] = connectFn
         viewModelScope.launch {
             val result = connectFn()
             when (result) {
                 is SshResult.Success -> {
                     sessionMap[tabId] = result.session
-                    updateTab(tabId) { copy(isConnecting = false, isConnected = true) }
+                    updateTab(tabId) {
+                        val connMsg = "\r\n\u001B[32m已连接到 ${this.host}\u001B[0m\r\n"
+                        copy(
+                            isConnecting = false,
+                            isConnected = true,
+                            isDisconnected = false,
+                            errorMessage = null,
+                            outputBuffer = outputBuffer + connMsg
+                        )
+                    }
                     startReadingOutput(tabId, result.session)
                 }
                 is SshResult.Error -> {
@@ -80,6 +93,7 @@ class TerminalViewModel @Inject constructor(
     }
 
     private fun startReadingOutput(tabId: String, session: SshSession) {
+        val host = _uiState.value.tabs.find { it.sessionId == tabId }?.host ?: tabId
         viewModelScope.launch(Dispatchers.IO) {
             val buffer = ByteArray(4096)
             try {
@@ -93,7 +107,10 @@ class TerminalViewModel @Inject constructor(
                 }
             } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    updateTab(tabId) { copy(isConnected = false, errorMessage = "Connection closed") }
+                    updateTab(tabId) {
+                        val closeMsg = "\r\n\u001B[33m已关闭 $host 的连接\u001B[0m\r\n"
+                        copy(isConnected = false, isDisconnected = true, outputBuffer = outputBuffer + closeMsg)
+                    }
                 }
             }
         }
@@ -160,6 +177,15 @@ class TerminalViewModel @Inject constructor(
         _uiState.update { state ->
             state.copy(tabs = state.tabs.map { if (it.sessionId == tabId) it.update() else it })
         }
+    }
+
+    fun reconnect(tabIndex: Int) {
+        val tab = _uiState.value.tabs.getOrNull(tabIndex) ?: return
+        val tabId = tab.sessionId
+        updateTab(tabId) { copy(isConnecting = true, isDisconnected = false, errorMessage = null) }
+        // We need the original connect params; store them in sessionMap as a reconnect lambda
+        val reconnectFn = reconnectMap[tabId] ?: return
+        doConnect(tabId, reconnectFn)
     }
 
     override fun onCleared() {
