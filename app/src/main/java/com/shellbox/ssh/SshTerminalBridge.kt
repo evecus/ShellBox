@@ -44,6 +44,8 @@ class SshTerminalBridge(
             onTitleChanged(newTitle ?: "")
         }
 
+        override fun onCopyTextToClipboard(text: String) {}
+        override fun onPasteTextFromClipboard() {}
         override fun onBell() {}
         override fun onColorsChanged() {}
     }
