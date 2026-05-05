@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
@@ -53,6 +54,7 @@ fun TerminalScreen(
     var ctrlPressed by remember { mutableStateOf(false) }
     var altPressed by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    var showVirtualKeyboard by remember { mutableStateOf(true) }
 
     // When ctrl is active, intercept next character
     LaunchedEffect(inputText) {
@@ -94,6 +96,13 @@ fun TerminalScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showVirtualKeyboard = !showVirtualKeyboard }) {
+                            Icon(
+                                if (showVirtualKeyboard) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
+                                contentDescription = if (showVirtualKeyboard) "隐藏虚拟键盘" else "显示虚拟键盘",
+                                tint = if (showVirtualKeyboard) Blue40 else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         IconButton(onClick = { /* resize font */ }) {
                             Icon(Icons.Outlined.TextFields, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -127,7 +136,7 @@ fun TerminalScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = 88.dp)
+                    .padding(bottom = if (showVirtualKeyboard) 88.dp else 0.dp)
                     .pointerInput(Unit) {
                         detectTapGestures {
                             focusRequester.requestFocus()
@@ -147,15 +156,17 @@ fun TerminalScreen(
             }
 
             // Virtual keyboard pinned to bottom; imePadding pushes it above the IME
-            VirtualKeyboard(
+            if (showVirtualKeyboard) VirtualKeyboard(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .imePadding(),
                 ctrlPressed = ctrlPressed,
                 altPressed = altPressed,
+                isDisconnected = uiState.activeTab?.isDisconnected == true,
                 onCtrlToggle = { ctrlPressed = !ctrlPressed; altPressed = false },
                 onAltToggle = { altPressed = !altPressed; ctrlPressed = false },
+                onReconnect = { viewModel.reconnect(uiState.activeTabIndex) },
                 onEsc = viewModel::sendEsc,
                 onTab = viewModel::sendTab,
                 onArrow = viewModel::sendArrow,
@@ -255,14 +266,39 @@ private fun TerminalTabRow(
     }
 }
 
+// Strip common ANSI/VT100 escape sequences including bracket-paste mode codes
+private fun stripAnsi(raw: String): String {
+    // Remove ESC [ ... m color codes, ESC [ ... h/l mode codes, ESC ] ... ST OSC, carriage returns mid-line
+    return raw
+        .replace(Regex("\[[0-9;]*[A-Za-z]"), "")  // CSI sequences
+        .replace(Regex("\][^]*(\\|)"), "") // OSC sequences
+        .replace(Regex("[()][AB012]"), "") // charset
+        .replace(Regex("[=>]"), "")
+        .replace(Regex("
+"), "
+")
+        .replace(Regex("
+"), "")
+}
+
 @Composable
 private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
-    val clipboardManager = LocalClipboardManager.current
     val scrollState = rememberScrollState()
+    var showCursor by remember { mutableStateOf(true) }
 
     LaunchedEffect(output) {
         scrollState.animateScrollTo(scrollState.maxValue)
     }
+
+    // Blink cursor every 500ms
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(500)
+            showCursor = !showCursor
+        }
+    }
+
+    val cleaned = remember(output) { stripAnsi(output).ifEmpty { "$ " } }
 
     SelectionContainer {
         Box(
@@ -273,7 +309,20 @@ private fun TerminalOutput(output: String, onSendInput: (String) -> Unit) {
                 .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
             Text(
-                text = output.ifEmpty { "$ " },
+                text = buildAnnotatedString {
+                    append(cleaned)
+                    // Cursor block
+                    if (showCursor) {
+                        pushStyle(
+                            androidx.compose.ui.text.SpanStyle(
+                                background = Color(0xFF1A1C1E),
+                                color = Color.White
+                            )
+                        )
+                        append(" ")
+                        pop()
+                    }
+                },
                 fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
                 color = Color(0xFF1A1C1E),
@@ -289,8 +338,10 @@ private fun VirtualKeyboard(
     modifier: Modifier = Modifier,
     ctrlPressed: Boolean,
     altPressed: Boolean,
+    isDisconnected: Boolean = false,
     onCtrlToggle: () -> Unit,
     onAltToggle: () -> Unit,
+    onReconnect: () -> Unit = {},
     onEsc: () -> Unit,
     onTab: () -> Unit,
     onArrow: (ArrowDirection) -> Unit,
@@ -313,7 +364,33 @@ private fun VirtualKeyboard(
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Row 1: ESC, TAB, Arrow keys, PgUp, PgDn, ⌨ (show IME)
+        // Reconnect banner shown when session dropped
+        if (isDisconnected) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFFFF3E0))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "连接已断开",
+                    fontSize = 12.sp,
+                    color = Color(0xFFE65100),
+                    fontWeight = FontWeight.Medium
+                )
+                TextButton(
+                    onClick = onReconnect,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // Row 1: ESC, TAB, Arrow keys, PgUp, PgDn
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(5.dp)
