@@ -268,17 +268,13 @@ private fun TerminalTabRow(
 
 // Strip common ANSI/VT100 escape sequences including bracket-paste mode codes
 private fun stripAnsi(raw: String): String {
-    // Remove ESC [ ... m color codes, ESC [ ... h/l mode codes, ESC ] ... ST OSC, carriage returns mid-line
     return raw
-        .replace(Regex("\[[0-9;]*[A-Za-z]"), "")  // CSI sequences
-        .replace(Regex("\][^]*(\\|)"), "") // OSC sequences
-        .replace(Regex("[()][AB012]"), "") // charset
-        .replace(Regex("[=>]"), "")
-        .replace(Regex("
-"), "
-")
-        .replace(Regex("
-"), "")
+        .replace(Regex("\u001B\\[[0-9;]*[A-Za-z]"), "")
+        .replace(Regex("\u001B\\][^\u001B]*(\u001B\\\\|\u0007)"), "")
+        .replace(Regex("\u001B[()][AB012]"), "")
+        .replace(Regex("\u001B[=>]"), "")
+        .replace("\r\n", "\n")
+        .replace("\r", "")
 }
 
 @Composable
