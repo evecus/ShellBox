@@ -51,7 +51,7 @@ class SshTerminalBridge(
     private val client = object : TerminalSessionClient {
         override fun onTextChanged() = this@SshTerminalBridge.onTextChanged()
         override fun onTitleChanged(newTitle: String?) { onTitleChanged(newTitle ?: "") }
-        override fun onCopyTextToClipboard(text: String?) {}
+        override fun onCopyTextToClipboard(text: String) {}
         override fun onPasteTextFromClipboard() {}
         override fun onBell() {}
         override fun onColorsChanged() {}
