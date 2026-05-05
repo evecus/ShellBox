@@ -105,15 +105,16 @@ fun TerminalCanvas(
     val density = LocalDensity.current
 
     // Font size in sp → px
-    val fontSizeSp = 13f
+    val fontSizeSp = 12f
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
 
     // Build Android Paint objects once; reuse across draws
     val textPaint = remember {
         android.graphics.Paint().apply {
-            typeface = Typeface.MONOSPACE
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             textSize = fontSizePx
             isAntiAlias = true
+            isSubpixelText = true
         }
     }
 
@@ -144,7 +145,7 @@ fun TerminalCanvas(
 
     Canvas(
         modifier = modifier
-            .background(Color.Black)
+            .background(Color.White)
             .pointerInput(Unit) {
                 detectTapGestures { onRequestFocus() }
             }
@@ -176,7 +177,7 @@ fun TerminalCanvas(
             val encodeMethod = TextStyle::class.java.getDeclaredMethod(
                 "encode", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType
             ).also { it.isAccessible = true }
-            encodeMethod.invoke(null, 7, 0, 0) as Long
+            encodeMethod.invoke(null, 0, 15, 0) as Long
         } catch (_: Exception) { 0L }
 
         for (row in 0 until rows) {
@@ -211,9 +212,9 @@ fun TerminalCanvas(
                 var fgIdx = TextStyle.decodeForeColor(style)
                 var bgIdx = TextStyle.decodeBackColor(style)
 
-                // Default colors: fg=7 (light gray), bg=0 (black)
-                if (fgIdx == TextStyle.NUM_INDEXED_COLORS)     fgIdx = 7
-                if (bgIdx == TextStyle.NUM_INDEXED_COLORS + 1) bgIdx = 0
+                // Default colors: fg=0 (black), bg=15 (white) for light theme
+                if (fgIdx == TextStyle.NUM_INDEXED_COLORS)     fgIdx = 0
+                if (bgIdx == TextStyle.NUM_INDEXED_COLORS + 1) bgIdx = 15
 
                 var fg = resolveColor(fgIdx, true, colors)
                 var bg = resolveColor(bgIdx, false, colors)
@@ -227,8 +228,8 @@ fun TerminalCanvas(
                 val cellX = col * cellW
                 val cellY = row * cellH
 
-                // Background rect
-                if (bg != 0xFF000000.toInt() || isCursor) {
+                // Background rect — skip pure white (default bg) unless cursor
+                if (bg != 0xFFFFFFFF.toInt() || isCursor) {
                     drawRect(
                         color = Color(bg),
                         topLeft = Offset(cellX, cellY),
