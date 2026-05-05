@@ -44,22 +44,23 @@ fun TerminalScreen(
     var altPressed by remember { mutableStateOf(false) }
     var showVirtualKeyboard by remember { mutableStateOf(true) }
 
-    val prevText = remember { mutableStateOf(".") }
-
-    // Use a sentinel so backspace always has something to delete from
-    val SENTINEL = "."
+    // Sentinel-based input: keep a single space as the base so backspace
+    // always has something to "delete from" in the TextField.
+    // The sentinel itself is never sent to the terminal.
+    val SENTINEL = " "
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
 
     LaunchedEffect(inputValue) {
         val new = inputValue.text
-        val old = prevText.value
-        when {
-            new.length < old.length -> {
-                val deleted = old.length - new.length
-                repeat(deleted) { viewModel.sendBackspace() }
-            }
-            new.length > old.length -> {
-                val added = new.removePrefix(old).ifEmpty { new.drop(1) }
+        if (new == SENTINEL) return@LaunchedEffect   // no change, skip
+
+        if (new.length < SENTINEL.length) {
+            // User pressed backspace (deleted the sentinel space)
+            viewModel.sendBackspace()
+        } else {
+            // User typed character(s) after the sentinel
+            val added = new.removePrefix(SENTINEL)
+            if (added.isNotEmpty()) {
                 when {
                     ctrlPressed -> { added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }; ctrlPressed = false }
                     altPressed  -> { added.lastOrNull()?.let { viewModel.sendAlt(it) }; altPressed = false }
@@ -67,13 +68,8 @@ fun TerminalScreen(
                 }
             }
         }
-        // Always reset back to sentinel so backspace is always detectable
-        if (new != SENTINEL) {
-            inputValue = TextFieldValue(SENTINEL)
-            prevText.value = SENTINEL
-        } else {
-            prevText.value = SENTINEL
-        }
+        // Always reset back to sentinel
+        inputValue = TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))
     }
 
     val titleText = uiState.activeTab?.label ?: "Terminal"
