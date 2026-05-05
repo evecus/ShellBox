@@ -80,6 +80,9 @@ android {
 }
 
 dependencies {
+    // Terminal emulator (local module — Termux VT100 engine)
+    implementation(project(":terminal-emulator"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

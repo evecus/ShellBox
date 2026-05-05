@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ShellBox"
 include(":app")
+include(":terminal-emulator")
