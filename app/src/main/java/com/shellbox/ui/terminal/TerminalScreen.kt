@@ -42,18 +42,24 @@ fun TerminalScreen(
     val uiState by viewModel.uiState.collectAsState()
     var ctrlPressed by remember { mutableStateOf(false) }
     var altPressed by remember { mutableStateOf(false) }
-    var inputValue by remember { mutableStateOf(TextFieldValue("")) }
     var showVirtualKeyboard by remember { mutableStateOf(true) }
 
-    // Track previous text to detect backspace vs typed chars
-    val prevText = remember { mutableStateOf("") }
+    val prevText = remember { mutableStateOf(".") }
+
+    // Use a sentinel so backspace always has something to delete from
+    val SENTINEL = "."
+    var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
+
     LaunchedEffect(inputValue) {
         val new = inputValue.text
         val old = prevText.value
         when {
-            new.length < old.length -> repeat(old.length - new.length) { viewModel.sendBackspace() }
+            new.length < old.length -> {
+                val deleted = old.length - new.length
+                repeat(deleted) { viewModel.sendBackspace() }
+            }
             new.length > old.length -> {
-                val added = new.substring(old.length)
+                val added = new.removePrefix(old).ifEmpty { new.drop(1) }
                 when {
                     ctrlPressed -> { added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }; ctrlPressed = false }
                     altPressed  -> { added.lastOrNull()?.let { viewModel.sendAlt(it) }; altPressed = false }
@@ -61,10 +67,12 @@ fun TerminalScreen(
                 }
             }
         }
-        prevText.value = new
-        if (new.isNotEmpty()) {
-            inputValue = TextFieldValue("")
-            prevText.value = ""
+        // Always reset back to sentinel so backspace is always detectable
+        if (new != SENTINEL) {
+            inputValue = TextFieldValue(SENTINEL)
+            prevText.value = SENTINEL
+        } else {
+            prevText.value = SENTINEL
         }
     }
 
@@ -113,7 +121,7 @@ fun TerminalScreen(
                 }
             }
         },
-        containerColor = Color.Black
+        containerColor = Color.White
     ) { padding ->
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
