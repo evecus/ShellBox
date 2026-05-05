@@ -127,6 +127,9 @@ class TerminalViewModel @Inject constructor(
         }
     }
 
+    /** Send a DEL/backspace character (0x7F) to the remote shell */
+    fun sendBackspace() = sendInput("\u007F")
+
     fun sendCtrlKey(char: Char) {
         val code = (char.lowercaseChar() - 'a' + 1).toChar()
         sendInput(code.toString())
@@ -183,7 +186,6 @@ class TerminalViewModel @Inject constructor(
         val tab = _uiState.value.tabs.getOrNull(tabIndex) ?: return
         val tabId = tab.sessionId
         updateTab(tabId) { copy(isConnecting = true, isDisconnected = false, errorMessage = null) }
-        // We need the original connect params; store them in sessionMap as a reconnect lambda
         val reconnectFn = reconnectMap[tabId] ?: return
         doConnect(tabId, reconnectFn)
     }
