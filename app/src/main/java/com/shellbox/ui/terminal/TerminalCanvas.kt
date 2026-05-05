@@ -10,13 +10,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.terminal.TerminalBuffer
@@ -151,7 +149,7 @@ fun TerminalCanvas(
                 detectTapGestures { onRequestFocus() }
             }
             .onSizeChanged { size ->
-                if (cellW > 0 && cellH > 0) {
+                if (cellW > 0f && cellH > 0f) {
                     val cols = max(1, floor(size.width / cellW).toInt())
                     val rows = max(1, floor(size.height / cellH).toInt())
                     onResize(cols, rows)
@@ -165,9 +163,25 @@ fun TerminalCanvas(
         val cursorRow = emulator.cursorRow
         val cursorCol = emulator.cursorCol
 
+        // Reflect mLines once per frame (field cached by JVM after first access)
+        val mLinesField = TerminalBuffer::class.java.getDeclaredField("mLines")
+            .also { it.isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val mLines = mLinesField.get(screen) as Array<TerminalRow?>
+
+        val mStyleField = TerminalRow::class.java.getDeclaredField("mStyle")
+            .also { it.isAccessible = true }
+
+        val defaultStyle: Long = try {
+            val encodeMethod = TextStyle::class.java.getDeclaredMethod(
+                "encode", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType
+            ).also { it.isAccessible = true }
+            encodeMethod.invoke(null, 7, 0, 0) as Long
+        } catch (_: Exception) { 0L }
+
         for (row in 0 until rows) {
             val line: TerminalRow = try {
-                screen.mLines[screen.externalToInternalRow(row)] ?: continue
+                mLines[screen.externalToInternalRow(row)] ?: continue
             } catch (_: Exception) { continue }
 
             var charIndex = 0
@@ -183,7 +197,10 @@ fun TerminalCanvas(
                     charIndex++
                 }
 
-                val style = line.mStyle.getOrElse(col) { TextStyle.encode(7, 0, 0) }
+                val style: Long = try {
+                    val mStyle = mStyleField.get(line) as LongArray
+                    if (col < mStyle.size) mStyle[col] else defaultStyle
+                } catch (_: Exception) { defaultStyle }
                 val effect = TextStyle.decodeEffect(style)
 
                 val isBold      = (effect and TextStyle.CHARACTER_ATTRIBUTE_BOLD) != 0
@@ -256,16 +273,3 @@ private val TerminalEmulator.cursorCol: Int get() {
         f.getInt(this)
     } catch (_: Exception) { 0 }
 }
-
-// Modifier extension for layout size callback (already in Compose as onSizeChanged,
-// but we need to import it)
-private fun Modifier.onSizeChanged(onSize: (androidx.compose.ui.unit.IntSize) -> Unit): Modifier =
-    this.then(
-        androidx.compose.ui.layout.layout { measurable, constraints ->
-            val placeable = measurable.measure(constraints)
-            layout(placeable.width, placeable.height) {
-                onSize(androidx.compose.ui.unit.IntSize(placeable.width, placeable.height))
-                placeable.place(0, 0)
-            }
-        }
-    )
