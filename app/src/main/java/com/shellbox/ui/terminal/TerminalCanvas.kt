@@ -105,7 +105,7 @@ fun TerminalCanvas(
     val density = LocalDensity.current
 
     // Font size in sp → px
-    val fontSizeSp = 12f
+    val fontSizeSp = 14f
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
 
     // Build Android Paint objects once; reuse across draws
@@ -114,17 +114,21 @@ fun TerminalCanvas(
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
             textSize = fontSizePx
             isAntiAlias = true
-            isSubpixelText = true
+            isSubpixelText = false  // disable subpixel to keep monospace grid sharp
+            letterSpacing = 0f
         }
     }
 
     // Measure a monospace char to get cell dimensions
+    // Use a fixed-width string to get accurate per-character width
     val cellW = remember(fontSizePx) {
-        textPaint.measureText("M")
+        val measured = textPaint.measureText("MMMMMMMMMM") / 10f
+        measured
     }
     val cellH = remember(fontSizePx) {
         val fm = textPaint.fontMetrics
-        fm.descent - fm.ascent
+        // Add a small leading gap so lines don't touch
+        (fm.descent - fm.ascent) * 1.05f
     }
     val baseline = remember(fontSizePx) {
         -textPaint.fontMetrics.ascent  // offset from cell top to baseline
@@ -212,12 +216,16 @@ fun TerminalCanvas(
                 var fgIdx = TextStyle.decodeForeColor(style)
                 var bgIdx = TextStyle.decodeBackColor(style)
 
-                // Default colors: fg=0 (black), bg=15 (white) for light theme
-                if (fgIdx == TextStyle.NUM_INDEXED_COLORS)     fgIdx = 0
-                if (bgIdx == TextStyle.NUM_INDEXED_COLORS + 1) bgIdx = 15
+                // Default colors: fg = pure black, bg = pure white (light theme)
+                if (fgIdx == TextStyle.NUM_INDEXED_COLORS)     fgIdx = 0   // black
+                if (bgIdx == TextStyle.NUM_INDEXED_COLORS + 1) bgIdx = 15  // white
 
                 var fg = resolveColor(fgIdx, true, colors)
                 var bg = resolveColor(bgIdx, false, colors)
+
+                // Override indexed black/white to true black/white so text is crisp
+                if (fgIdx == 0)  fg = 0xFF000000.toInt()
+                if (bgIdx == 15) bg = 0xFFFFFFFF.toInt()
 
                 if (isInverse) { val tmp = fg; fg = bg; bg = tmp }
 
