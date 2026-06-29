@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.data.model.AuthType
 import com.shellbox.data.model.QuickConnect
@@ -41,7 +42,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val servers by viewModel.servers.collectAsState()
-    var showQuickConnect by remember { mutableStateOf(true) }
+    var showQuickConnectDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -76,16 +77,6 @@ fun HomeScreen(
                 )
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = onAddServer,
-                containerColor = Blue40,
-                contentColor = Color.White,
-                elevation = FloatingActionButtonDefaults.elevation(6.dp)
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add Server")
-            }
-        },
         containerColor = Color.White
     ) { padding ->
         LazyColumn(
@@ -94,12 +85,11 @@ fun HomeScreen(
                 .padding(padding),
             contentPadding = PaddingValues(bottom = 100.dp)
         ) {
-            // Quick Connect Card
+            // Quick Connect / Add Server action buttons
             item {
-                QuickConnectSection(
-                    expanded = showQuickConnect,
-                    onToggle = { showQuickConnect = !showQuickConnect },
-                    onConnect = onConnect
+                ActionButtonsRow(
+                    onQuickConnect = { showQuickConnectDialog = true },
+                    onAddServer = onAddServer
                 )
             }
 
@@ -143,12 +133,87 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showQuickConnectDialog) {
+        QuickConnectDialog(
+            onDismiss = { showQuickConnectDialog = false },
+            onConnect = { quickConnect ->
+                showQuickConnectDialog = false
+                onConnect(quickConnect)
+            }
+        )
+    }
 }
 
 @Composable
-private fun QuickConnectSection(
-    expanded: Boolean,
-    onToggle: () -> Unit,
+private fun ActionButtonsRow(
+    onQuickConnect: () -> Unit,
+    onAddServer: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ActionButton(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Outlined.FlashOn,
+            label = "快速连接",
+            onClick = onQuickConnect
+        )
+        ActionButton(
+            modifier = Modifier.weight(1f),
+            icon = Icons.Filled.Add,
+            label = "添加服务器",
+            onClick = onAddServer
+        )
+    }
+}
+
+@Composable
+private fun ActionButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .shadow(1.dp, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Blue90)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Blue95),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = Blue40, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickConnectDialog(
+    onDismiss: () -> Unit,
     onConnect: (QuickConnect) -> Unit
 ) {
     var host by remember { mutableStateOf("") }
@@ -160,24 +225,16 @@ private fun QuickConnectSection(
     var keyPassphrase by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .shadow(2.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Blue90)
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggle),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(4.dp, RoundedCornerShape(20.dp)),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                // Header
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -207,103 +264,108 @@ private fun QuickConnectSection(
                         )
                     }
                 }
-                Icon(
-                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
 
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Column {
-                    Spacer(Modifier.height(20.dp))
-                    HorizontalDivider(color = Blue90)
-                    Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(20.dp))
+                HorizontalDivider(color = Blue90)
+                Spacer(Modifier.height(16.dp))
 
-                    // Host + Port Row
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ShellTextField(
-                            value = host,
-                            onValueChange = { host = it },
-                            label = "主机 / IP",
-                            placeholder = "192.168.1.1",
-                            modifier = Modifier.weight(1f),
-                            leadingIcon = Icons.Outlined.Dns,
-                            keyboardType = KeyboardType.Uri
-                        )
-                        ShellTextField(
-                            value = port,
-                            onValueChange = { port = it.filter { c -> c.isDigit() } },
-                            label = "端口",
-                            placeholder = "22",
-                            modifier = Modifier.width(90.dp),
-                            keyboardType = KeyboardType.Number
-                        )
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // Username
+                // Host + Port Row
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ShellTextField(
-                        value = username,
-                        onValueChange = { username = it },
-                        label = "用户名",
-                        placeholder = "root",
-                        leadingIcon = Icons.Outlined.Person
+                        value = host,
+                        onValueChange = { host = it },
+                        label = "主机 / IP",
+                        placeholder = "192.168.1.1",
+                        modifier = Modifier.weight(1f),
+                        leadingIcon = Icons.Outlined.Dns,
+                        keyboardType = KeyboardType.Uri
                     )
+                    ShellTextField(
+                        value = port,
+                        onValueChange = { port = it.filter { c -> c.isDigit() } },
+                        label = "端口",
+                        placeholder = "22",
+                        modifier = Modifier.width(90.dp),
+                        keyboardType = KeyboardType.Number
+                    )
+                }
 
-                    Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp))
 
-                    // Auth type toggle
-                    AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it })
+                // Username
+                ShellTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = "用户名",
+                    placeholder = "root",
+                    leadingIcon = Icons.Outlined.Person
+                )
 
-                    Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp))
 
-                    // Auth fields
-                    AnimatedContent(targetState = authType, label = "auth") { type ->
-                        when (type) {
-                            AuthType.PASSWORD -> {
+                // Auth type toggle
+                AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it })
+
+                Spacer(Modifier.height(10.dp))
+
+                // Auth fields
+                AnimatedContent(targetState = authType, label = "auth") { type ->
+                    when (type) {
+                        AuthType.PASSWORD -> {
+                            ShellTextField(
+                                value = password,
+                                onValueChange = { password = it },
+                                label = "密码",
+                                placeholder = "••••••••",
+                                leadingIcon = Icons.Outlined.Lock,
+                                isPassword = true,
+                                showPassword = showPassword,
+                                onTogglePassword = { showPassword = !showPassword }
+                            )
+                        }
+                        AuthType.PRIVATE_KEY -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 ShellTextField(
-                                    value = password,
-                                    onValueChange = { password = it },
-                                    label = "密码",
-                                    placeholder = "••••••••",
-                                    leadingIcon = Icons.Outlined.Lock,
+                                    value = privateKeyPath,
+                                    onValueChange = { privateKeyPath = it },
+                                    label = "私钥路径",
+                                    placeholder = "/sdcard/.ssh/id_rsa",
+                                    leadingIcon = Icons.Outlined.Key
+                                )
+                                ShellTextField(
+                                    value = keyPassphrase,
+                                    onValueChange = { keyPassphrase = it },
+                                    label = "密钥密码（可选）",
+                                    placeholder = "留空表示无密码",
+                                    leadingIcon = Icons.Outlined.Password,
                                     isPassword = true,
                                     showPassword = showPassword,
                                     onTogglePassword = { showPassword = !showPassword }
                                 )
                             }
-                            AuthType.PRIVATE_KEY -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    ShellTextField(
-                                        value = privateKeyPath,
-                                        onValueChange = { privateKeyPath = it },
-                                        label = "私钥路径",
-                                        placeholder = "/sdcard/.ssh/id_rsa",
-                                        leadingIcon = Icons.Outlined.Key
-                                    )
-                                    ShellTextField(
-                                        value = keyPassphrase,
-                                        onValueChange = { keyPassphrase = it },
-                                        label = "密钥密码（可选）",
-                                        placeholder = "留空表示无密码",
-                                        leadingIcon = Icons.Outlined.Password,
-                                        isPassword = true,
-                                        showPassword = showPassword,
-                                        onTogglePassword = { showPassword = !showPassword }
-                                    )
-                                }
-                            }
                         }
                     }
+                }
 
-                    Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(16.dp))
 
+                // Connect + Cancel buttons, symmetric
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFFDDE3EA))
+                    ) {
+                        Text(
+                            "取消",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Button(
                         onClick = {
                             onConnect(
@@ -319,7 +381,7 @@ private fun QuickConnectSection(
                             )
                         },
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1f)
                             .height(52.dp),
                         enabled = host.isNotBlank() && username.isNotBlank(),
                         shape = RoundedCornerShape(14.dp),
@@ -328,8 +390,8 @@ private fun QuickConnectSection(
                             disabledContainerColor = Blue90
                         )
                     ) {
-                        Icon(Icons.Filled.Terminal, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Filled.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text("连接", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     }
                 }
@@ -472,7 +534,7 @@ private fun EmptyServersHint(onAdd: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text("还没有保存的服务器", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text("点击 + 按钮添加常用服务器", style = MaterialTheme.typography.bodyMedium,
+        Text("点击上方"添加服务器"按钮保存常用服务器", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
         OutlinedButton(
