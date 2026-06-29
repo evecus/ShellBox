@@ -61,10 +61,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag: test
-          tag_name: shellbox test
+          name: ShellBox test
+          tag_name: test
           files: artifacts/ShellBox-*.apk
-          name: ShellBox ${{ github.ref_name }}
           body: |
             ## ShellBox ${{ github.ref_name }}
 
