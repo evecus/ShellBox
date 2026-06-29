@@ -68,7 +68,7 @@ jobs:
             ## ShellBox ${{ github.ref_name }}
 
             ### 安装说明
-            1. 下载 `ShellBox-${{ github.ref_name }}.apk`
+            1. 下载 `ShellBox-arm64.apk`
             2. 在 Android 设备上允许安装未知来源应用
             3. 安装并运行
 
