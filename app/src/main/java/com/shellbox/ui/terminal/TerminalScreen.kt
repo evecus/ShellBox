@@ -115,6 +115,7 @@ fun TerminalScreen(
                         onCloseTab = viewModel::closeTab
                     )
                 }
+                HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
             }
         },
         containerColor = Color.White
@@ -158,6 +159,7 @@ fun TerminalScreen(
 
             // Virtual keyboard toolbar
             if (showVirtualKeyboard) {
+                HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
                 VirtualKeyboard(
                     modifier = Modifier.fillMaxWidth(),
                     ctrlPressed = ctrlPressed,
@@ -200,18 +202,18 @@ private fun TerminalTabRow(
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF1A1A2E))
+            .background(Color.White)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         itemsIndexed(tabs) { index, tab ->
             val isActive = index == activeIndex
             val bgColor by animateColorAsState(
-                if (isActive) Blue40 else Color(0xFF2A2A3E),
+                if (isActive) Blue40 else Color(0xFFF0F0F3),
                 animationSpec = tween(200), label = "tab_color"
             )
             val textColor by animateColorAsState(
-                if (isActive) Color.White else Color(0xFFAAAAAA),
+                if (isActive) Color.White else Color.Black,
                 animationSpec = tween(200), label = "tab_text"
             )
             Row(
@@ -278,18 +280,20 @@ private fun VirtualKeyboard(
 ) {
     Column(
         modifier = modifier
-            .background(Color(0xFF111122))
+            .background(Color.White)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         if (isDisconnected) {
             Row(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF3D2000)).padding(horizontal = 12.dp, vertical = 4.dp),
+                    .background(Color(0xFFFFF3E0))
+                    .border(1.dp, Color(0xFFFFB74D), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("连接已断开", fontSize = 12.sp, color = Color(0xFFFFAA44), fontWeight = FontWeight.Medium)
+                Text("连接已断开", fontSize = 12.sp, color = Color(0xFFB35900), fontWeight = FontWeight.Medium)
                 TextButton(onClick = onReconnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
                     Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
                 }
@@ -345,12 +349,16 @@ private fun VKey(
     isActive: Boolean = false
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (isActive) Blue40 else Color(0xFF2A2A3E),
+        targetValue = if (isActive) Blue40 else Color.White,
         animationSpec = tween(150), label = "vkey_bg"
     )
     val textColor by animateColorAsState(
-        targetValue = if (isActive) Color.White else Color(0xFFCCCCDD),
+        targetValue = if (isActive) Color.White else Color.Black,
         animationSpec = tween(150), label = "vkey_text"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isActive) Color.Transparent else Color.Black,
+        animationSpec = tween(150), label = "vkey_border"
     )
     Box(
         modifier = modifier
@@ -359,7 +367,7 @@ private fun VKey(
             .background(bgColor)
             .border(
                 width = if (isActive) 0.dp else 1.dp,
-                color = if (isActive) Color.Transparent else Color(0xFF444466),
+                color = borderColor,
                 shape = RoundedCornerShape(7.dp)
             )
             .clickable(onClick = onClick),
@@ -380,7 +388,7 @@ private fun ConnectingIndicator(label: String) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator(color = Blue40, strokeWidth = 3.dp)
             Spacer(Modifier.height(16.dp))
-            Text("正在连接 $label...", color = Color(0xFFAAAAAA))
+            Text("正在连接 $label...", color = Color(0xFF666666))
         }
     }
 }
@@ -391,9 +399,9 @@ private fun ErrorDisplay(error: String, onBack: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Outlined.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(56.dp))
             Spacer(Modifier.height(16.dp))
-            Text("连接失败", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("连接失败", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Black)
             Spacer(Modifier.height(8.dp))
-            Text(error, style = MaterialTheme.typography.bodyMedium, color = Color(0xFFAAAAAA),
+            Text(error, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF666666),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(24.dp))
             OutlinedButton(onClick = onBack, border = BorderStroke(1.5.dp, Blue40)) {
@@ -409,7 +417,7 @@ private fun EmptyTerminalPlaceholder(onBack: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Outlined.Terminal, null, tint = Blue40, modifier = Modifier.size(48.dp))
             Spacer(Modifier.height(12.dp))
-            Text("没有活跃的连接", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Text("没有活跃的连接", style = MaterialTheme.typography.titleMedium, color = Color.Black)
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = onBack) { Text("返回主页") }
         }
