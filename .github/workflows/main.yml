@@ -59,9 +59,10 @@ jobs:
           retention-days: 30
 
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag: test
+          tag_name: shellbox test
           files: artifacts/ShellBox-*.apk
           name: ShellBox ${{ github.ref_name }}
           body: |
@@ -75,6 +76,6 @@ jobs:
             ### 更新内容
             请查看 Commits 了解本版本变更。
           draft: false
-          prerelease: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
