@@ -119,10 +119,12 @@ fun TerminalCanvas(
         }
     }
 
-    // Measure a monospace char to get cell dimensions
-    // Use a fixed-width string to get accurate per-character width
+    // Measure a monospace char to get cell dimensions.
+    // Since each glyph is later horizontally normalized to exactly this width
+    // (see textScaleX usage below), basing it on a representative alphanumeric
+    // sample gives natural-looking proportions instead of the widest glyph (e.g. "M").
     val cellW = remember(fontSizePx) {
-        val measured = textPaint.measureText("MMMMMMMMMM") / 10f
+        val measured = textPaint.measureText("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") / 62f
         measured
     }
     val cellH = remember(fontSizePx) {
@@ -217,8 +219,8 @@ fun TerminalCanvas(
                 var bgIdx = TextStyle.decodeBackColor(style)
 
                 // Default colors: fg = pure black, bg = pure white (light theme)
-                if (fgIdx == TextStyle.NUM_INDEXED_COLORS)     fgIdx = 0   // black
-                if (bgIdx == TextStyle.NUM_INDEXED_COLORS + 1) bgIdx = 15  // white
+                if (fgIdx == TextStyle.COLOR_INDEX_FOREGROUND) fgIdx = 0   // black
+                if (bgIdx == TextStyle.COLOR_INDEX_BACKGROUND) bgIdx = 15  // white
 
                 var fg = resolveColor(fgIdx, true, colors)
                 var bg = resolveColor(bgIdx, false, colors)
@@ -233,15 +235,21 @@ fun TerminalCanvas(
                 val isCursor = row == cursorRow && col == cursorCol && cursorVisible
                 if (isCursor) { val tmp = fg; fg = bg; bg = tmp }
 
+                // Advance by display width (wide chars take 2 columns)
+                val charWidth = com.termux.terminal.WcWidth.width(codePoint)
+                val widthCols = if (charWidth > 0) charWidth else 1
+                val cellSpanW = cellW * widthCols
+
                 val cellX = col * cellW
                 val cellY = row * cellH
 
                 // Background rect — skip pure white (default bg) unless cursor
+                // Spans the full width of wide (e.g. CJK) characters so no gap/overlap occurs
                 if (bg != 0xFFFFFFFF.toInt() || isCursor) {
                     drawRect(
                         color = Color(bg),
                         topLeft = Offset(cellX, cellY),
-                        size = Size(cellW, cellH)
+                        size = Size(cellSpanW, cellH)
                     )
                 }
 
@@ -252,13 +260,27 @@ fun TerminalCanvas(
                         textPaint.isFakeBoldText = isBold
                         textPaint.isUnderlineText = isUnderline
                         val str = String(Character.toChars(codePoint))
-                        canvas.nativeCanvas.drawText(str, cellX, cellY + baseline, textPaint)
+                        if (widthCols > 1) {
+                            // Center wide glyphs (CJK etc.) within their multi-cell span so
+                            // they don't visually collide with the following character.
+                            textPaint.textScaleX = 1f
+                            val measured = textPaint.measureText(str)
+                            val offsetX = ((cellSpanW - measured) / 2f).coerceAtLeast(0f)
+                            canvas.nativeCanvas.drawText(str, cellX + offsetX, cellY + baseline, textPaint)
+                        } else {
+                            // Force the glyph to occupy exactly one cell width regardless of
+                            // the font's natural advance, so characters stay tightly packed
+                            // on the monospace grid instead of drifting apart.
+                            textPaint.textScaleX = 1f
+                            val measured = textPaint.measureText(str)
+                            textPaint.textScaleX = if (measured > 0.1f) (cellW / measured) else 1f
+                            canvas.nativeCanvas.drawText(str, cellX, cellY + baseline, textPaint)
+                            textPaint.textScaleX = 1f
+                        }
                     }
                 }
 
-                // Advance by display width (wide chars take 2 columns)
-                val charWidth = com.termux.terminal.WcWidth.width(codePoint)
-                col += if (charWidth > 0) charWidth else 1
+                col += widthCols
             }
         }
     }
