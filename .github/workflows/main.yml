@@ -48,7 +48,7 @@ jobs:
         run: |
           mkdir -p artifacts
           cp app/build/outputs/apk/release/app-release.apk \
-             artifacts/ShellBox-${{ github.ref_name }}.apk
+             artifacts/ShellBox-arm64.apk
           echo "APK size: $(wc -c < artifacts/ShellBox-${{ github.ref_name }}.apk) bytes"
 
       - name: Upload APK artifact
