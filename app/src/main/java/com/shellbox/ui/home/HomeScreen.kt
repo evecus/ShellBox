@@ -534,7 +534,7 @@ private fun EmptyServersHint(onAdd: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         Text("还没有保存的服务器", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
-        Text("点击上方"添加服务器"按钮保存常用服务器", style = MaterialTheme.typography.bodyMedium,
+        Text("点击上方「添加服务器」按钮保存常用服务器", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(20.dp))
         OutlinedButton(
