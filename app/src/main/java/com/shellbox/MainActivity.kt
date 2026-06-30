@@ -14,6 +14,7 @@ import com.shellbox.data.model.QuickConnect
 import com.shellbox.data.model.Server
 import com.shellbox.ui.addserver.AddServerScreen
 import com.shellbox.ui.home.HomeScreen
+import com.shellbox.ui.settings.SettingsScreen
 import com.shellbox.ui.terminal.TerminalScreen
 import com.shellbox.ui.terminal.TerminalViewModel
 import com.shellbox.ui.theme.ShellBoxTheme
@@ -49,8 +50,13 @@ fun ShellBoxNavGraph() {
                     navController.navigate("terminal")
                 },
                 onAddServer = { navController.navigate("add_server") },
-                onEditServer = { server -> navController.navigate("add_server?id=${server.id}") }
+                onEditServer = { server -> navController.navigate("add_server?id=${server.id}") },
+                onOpenSettings = { navController.navigate("settings") }
             )
+        }
+
+        composable("settings") {
+            SettingsScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

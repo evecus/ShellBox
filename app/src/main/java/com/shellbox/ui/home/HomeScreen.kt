@@ -39,6 +39,7 @@ fun HomeScreen(
     onConnectServer: (Server) -> Unit,
     onAddServer: () -> Unit,
     onEditServer: (Server) -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val servers by viewModel.servers.collectAsState()
@@ -69,6 +70,15 @@ fun HomeScreen(
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = "设置",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },

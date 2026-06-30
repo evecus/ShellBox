@@ -100,18 +100,22 @@ fun TerminalCanvas(
     renderTick: Long,
     onResize: (cols: Int, rows: Int) -> Unit,
     onRequestFocus: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fontSizeSp: Float = TerminalFontDefaults.DEFAULT_SIZE,
+    terminalFont: TerminalFont = TerminalFont.SYSTEM
 ) {
     val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Font size in sp → px
-    val fontSizeSp = 14f
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
+    val typeface = remember(terminalFont) { TerminalTypefaceCache.resolve(context, terminalFont) }
 
-    // Build Android Paint objects once; reuse across draws
-    val textPaint = remember {
+    // Build Android Paint objects once; reuse across draws. Recreated whenever
+    // the chosen typeface or size changes so the canvas reflects new settings.
+    val textPaint = remember(typeface, fontSizePx) {
         android.graphics.Paint().apply {
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+            this.typeface = typeface
             textSize = fontSizePx
             isAntiAlias = true
             isSubpixelText = false  // disable subpixel to keep monospace grid sharp
@@ -123,16 +127,16 @@ fun TerminalCanvas(
     // Since each glyph is later horizontally normalized to exactly this width
     // (see textScaleX usage below), basing it on a representative alphanumeric
     // sample gives natural-looking proportions instead of the widest glyph (e.g. "M").
-    val cellW = remember(fontSizePx) {
+    val cellW = remember(fontSizePx, typeface) {
         val measured = textPaint.measureText("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") / 62f
         measured
     }
-    val cellH = remember(fontSizePx) {
+    val cellH = remember(fontSizePx, typeface) {
         val fm = textPaint.fontMetrics
         // Add a small leading gap so lines don't touch
         (fm.descent - fm.ascent) * 1.05f
     }
-    val baseline = remember(fontSizePx) {
+    val baseline = remember(fontSizePx, typeface) {
         -textPaint.fontMetrics.ascent  // offset from cell top to baseline
     }
 

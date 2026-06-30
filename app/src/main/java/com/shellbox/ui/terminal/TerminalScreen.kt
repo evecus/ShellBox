@@ -44,6 +44,12 @@ fun TerminalScreen(
     var altPressed by remember { mutableStateOf(false) }
     var showVirtualKeyboard by remember { mutableStateOf(true) }
 
+    // Live terminal display settings (font + size), persisted via TerminalSettingsStore
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
+    val fontSize by settingsStore.fontSize.collectAsState()
+    val terminalFont by settingsStore.font.collectAsState()
+
     // Sentinel-based input: keep a single space as the base so backspace
     // always has something to "delete from" in the TextField.
     // The sentinel itself is never sent to the terminal.
@@ -101,9 +107,6 @@ fun TerminalScreen(
                                 tint = if (showVirtualKeyboard) Blue40 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        IconButton(onClick = { }) {
-                            Icon(Icons.Outlined.TextFields, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
@@ -150,7 +153,9 @@ fun TerminalScreen(
                                     focusRequester.requestFocus()
                                     keyboardController?.show()
                                 },
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                fontSizeSp = fontSize,
+                                terminalFont = terminalFont
                             )
                         }
                     }
