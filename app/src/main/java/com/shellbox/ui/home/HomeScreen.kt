@@ -556,15 +556,5 @@ private fun EmptyServersHint(onAdd: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text("点击上方「添加服务器」按钮保存常用服务器", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp))
-        OutlinedButton(
-            onClick = onAdd,
-            border = BorderStroke(1.5.dp, Blue40),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Filled.Add, null, tint = Blue40)
-            Spacer(Modifier.width(6.dp))
-            Text("添加服务器", color = Blue40, fontWeight = FontWeight.SemiBold)
-        }
     }
 }
