@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.data.model.AuthType
+import com.shellbox.data.model.PrivateKeySource
 import com.shellbox.data.model.QuickConnect
 import com.shellbox.data.model.Server
 import com.shellbox.ui.theme.Blue40
@@ -231,7 +232,9 @@ private fun QuickConnectDialog(
     var username by remember { mutableStateOf("") }
     var authType by remember { mutableStateOf(AuthType.PASSWORD) }
     var password by remember { mutableStateOf("") }
-    var privateKeyPath by remember { mutableStateOf("") }
+    var privateKeySource by remember { mutableStateOf(PrivateKeySource.FILE) }
+    var privateKeyValue by remember { mutableStateOf("") }
+    var privateKeyFileName by remember { mutableStateOf<String?>(null) }
     var keyPassphrase by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
 
@@ -335,12 +338,17 @@ private fun QuickConnectDialog(
                         }
                         AuthType.PRIVATE_KEY -> {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                ShellTextField(
-                                    value = privateKeyPath,
-                                    onValueChange = { privateKeyPath = it },
-                                    label = "私钥路径",
-                                    placeholder = "/sdcard/.ssh/id_rsa",
-                                    leadingIcon = Icons.Outlined.Key
+                                PrivateKeyInput(
+                                    source = privateKeySource,
+                                    value = privateKeyValue,
+                                    fileDisplayName = privateKeyFileName,
+                                    onSourceChange = {
+                                        privateKeySource = it
+                                        privateKeyValue = ""
+                                        privateKeyFileName = null
+                                    },
+                                    onValueChange = { privateKeyValue = it },
+                                    onFileDisplayNameChange = { privateKeyFileName = it }
                                 )
                                 ShellTextField(
                                     value = keyPassphrase,
@@ -385,7 +393,9 @@ private fun QuickConnectDialog(
                                     username = username.trim(),
                                     authType = authType,
                                     password = password,
-                                    privateKeyPath = privateKeyPath.trim(),
+                                    privateKeySource = privateKeySource,
+                                    privateKeyValue = if (privateKeySource == PrivateKeySource.TEXT)
+                                        privateKeyValue.trim() else privateKeyValue,
                                     privateKeyPassphrase = keyPassphrase
                                 )
                             )

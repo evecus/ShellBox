@@ -1,8 +1,11 @@
 package com.shellbox.ssh
 
+import android.content.Context
 import com.shellbox.data.model.AuthType
+import com.shellbox.data.model.PrivateKeySource
 import com.shellbox.data.model.Server
 import com.shellbox.data.model.QuickConnect
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +14,7 @@ import net.schmizz.sshj.AndroidConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider
+import net.schmizz.sshj.userauth.password.PasswordUtils
 import net.schmizz.sshj.connection.channel.direct.Session as SshJSession
 import java.io.InputStream
 import java.io.OutputStream
@@ -56,10 +60,37 @@ sealed class SshResult {
 }
 
 @Singleton
-class SshManager @Inject constructor() {
+class SshManager @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
 
     private val _sessions = MutableStateFlow<Map<String, SshSession>>(emptyMap())
     val sessions: StateFlow<Map<String, SshSession>> = _sessions
+
+    /**
+     * Resolves the raw private key PEM/OpenSSH text regardless of whether the
+     * user picked a file (stored as a content:// URI string) or pasted the
+     * key content directly.
+     */
+    private fun resolvePrivateKeyContent(source: PrivateKeySource, value: String): String {
+        return when (source) {
+            PrivateKeySource.TEXT -> value
+            PrivateKeySource.FILE -> {
+                val uri = android.net.Uri.parse(value)
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    stream.bufferedReader().readText()
+                } ?: throw java.io.IOException("无法读取所选的私钥文件，请重新选择")
+            }
+        }
+    }
+
+    /** Builds a sshj [KeyProvider] from in-memory key text, optionally passphrase-protected. */
+    private fun keyProviderFromContent(client: SSHClient, keyContent: String, passphrase: String): KeyProvider {
+        val passwordFinder = if (passphrase.isNotBlank()) {
+            PasswordUtils.createOneOff(passphrase.toCharArray())
+        } else null
+        return client.loadKeys(keyContent, null, passwordFinder)
+    }
 
     suspend fun connect(server: Server, cols: Int = 220, rows: Int = 50): SshResult =
         withContext(Dispatchers.IO) {
@@ -76,11 +107,8 @@ class SshManager @Inject constructor() {
                 when (server.authType) {
                     AuthType.PASSWORD -> client.authPassword(server.username, server.password)
                     AuthType.PRIVATE_KEY -> {
-                        val keyProvider: KeyProvider = if (server.privateKeyPassphrase.isNotBlank()) {
-                            client.loadKeys(server.privateKeyPath, server.privateKeyPassphrase)
-                        } else {
-                            client.loadKeys(server.privateKeyPath)
-                        }
+                        val keyContent = resolvePrivateKeyContent(server.privateKeySource, server.privateKeyValue)
+                        val keyProvider = keyProviderFromContent(client, keyContent, server.privateKeyPassphrase)
                         client.authPublickey(server.username, keyProvider)
                     }
                 }
@@ -120,7 +148,8 @@ class SshManager @Inject constructor() {
             username = quickConnect.username,
             authType = quickConnect.authType,
             password = quickConnect.password,
-            privateKeyPath = quickConnect.privateKeyPath,
+            privateKeySource = quickConnect.privateKeySource,
+            privateKeyValue = quickConnect.privateKeyValue,
             privateKeyPassphrase = quickConnect.privateKeyPassphrase
         )
         return connect(server, cols, rows)

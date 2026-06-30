@@ -19,6 +19,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): ShellBoxDatabase =
         Room.databaseBuilder(context, ShellBoxDatabase::class.java, "shellbox.db")
+            .fallbackToDestructiveMigration()
             .build()
 
     @Provides

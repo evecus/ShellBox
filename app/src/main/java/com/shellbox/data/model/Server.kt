@@ -16,7 +16,11 @@ data class Server(
     val username: String,
     val authType: AuthType = AuthType.PASSWORD,
     val password: String = "",
-    val privateKeyPath: String = "",
+    // Where the private key material comes from. FILE -> privateKeyValue holds a
+    // content:// URI string from the system file picker. TEXT -> privateKeyValue
+    // holds the raw PEM/OpenSSH key content the user pasted in directly.
+    val privateKeySource: PrivateKeySource = PrivateKeySource.FILE,
+    val privateKeyValue: String = "",
     val privateKeyPassphrase: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val lastUsedAt: Long = 0
@@ -25,4 +29,9 @@ data class Server(
 @Parcelize
 enum class AuthType : Parcelable {
     PASSWORD, PRIVATE_KEY
+}
+
+@Parcelize
+enum class PrivateKeySource : Parcelable {
+    FILE, TEXT
 }

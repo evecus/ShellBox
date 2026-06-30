@@ -10,7 +10,8 @@ data class QuickConnect(
     val username: String,
     val authType: AuthType = AuthType.PASSWORD,
     val password: String = "",
-    val privateKeyPath: String = "",
+    val privateKeySource: PrivateKeySource = PrivateKeySource.FILE,
+    val privateKeyValue: String = "",
     val privateKeyPassphrase: String = ""
 ) : Parcelable
 
@@ -21,6 +22,7 @@ fun QuickConnect.toServer(name: String) = Server(
     username = username,
     authType = authType,
     password = password,
-    privateKeyPath = privateKeyPath,
+    privateKeySource = privateKeySource,
+    privateKeyValue = privateKeyValue,
     privateKeyPassphrase = privateKeyPassphrase
 )

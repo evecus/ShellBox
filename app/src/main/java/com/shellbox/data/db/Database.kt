@@ -25,7 +25,7 @@ interface ServerDao {
     suspend fun updateLastUsed(id: Long, time: Long = System.currentTimeMillis())
 }
 
-@Database(entities = [Server::class], version = 1, exportSchema = false)
+@Database(entities = [Server::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class ShellBoxDatabase : RoomDatabase() {
     abstract fun serverDao(): ServerDao
@@ -38,4 +38,11 @@ class Converters {
     @TypeConverter
     fun toAuthType(value: String): com.shellbox.data.model.AuthType =
         com.shellbox.data.model.AuthType.valueOf(value)
+
+    @TypeConverter
+    fun fromPrivateKeySource(value: com.shellbox.data.model.PrivateKeySource): String = value.name
+
+    @TypeConverter
+    fun toPrivateKeySource(value: String): com.shellbox.data.model.PrivateKeySource =
+        com.shellbox.data.model.PrivateKeySource.valueOf(value)
 }
