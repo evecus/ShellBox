@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -40,41 +41,36 @@ fun TerminalScreen(
     viewModel: TerminalViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var ctrlPressed by remember { mutableStateOf(false) }
-    var altPressed by remember { mutableStateOf(false) }
+    var ctrlPressed  by remember { mutableStateOf(false) }
+    var altPressed   by remember { mutableStateOf(false) }
+    var shiftPressed by remember { mutableStateOf(false) }
     var showVirtualKeyboard by remember { mutableStateOf(true) }
 
-    // Live terminal display settings (font + size), persisted via TerminalSettingsStore
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
-    val fontSize by settingsStore.fontSize.collectAsState()
+    val vkeyStore     = remember { VKeyLayoutStore.getInstance(context) }
+    val fontSize   by settingsStore.fontSize.collectAsState()
     val terminalFont by settingsStore.font.collectAsState()
+    val vkeyLayout by vkeyStore.layout.collectAsState()
 
-    // Sentinel-based input: keep a single space as the base so backspace
-    // always has something to "delete from" in the TextField.
-    // The sentinel itself is never sent to the terminal.
     val SENTINEL = " "
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
 
     LaunchedEffect(inputValue) {
         val new = inputValue.text
-        if (new == SENTINEL) return@LaunchedEffect   // no change, skip
-
+        if (new == SENTINEL) return@LaunchedEffect
         if (new.length < SENTINEL.length) {
-            // User pressed backspace (deleted the sentinel space)
             viewModel.sendBackspace()
         } else {
-            // User typed character(s) after the sentinel
             val added = new.removePrefix(SENTINEL)
             if (added.isNotEmpty()) {
                 when {
                     ctrlPressed -> { added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }; ctrlPressed = false }
-                    altPressed  -> { added.lastOrNull()?.let { viewModel.sendAlt(it) }; altPressed = false }
+                    altPressed  -> { added.lastOrNull()?.let { viewModel.sendAlt(it) };     altPressed  = false }
                     else        -> viewModel.sendInput(added)
                 }
             }
         }
-        // Always reset back to sentinel
         inputValue = TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))
     }
 
@@ -100,12 +96,15 @@ fun TerminalScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showVirtualKeyboard = !showVirtualKeyboard }) {
-                            Icon(
-                                if (showVirtualKeyboard) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
-                                contentDescription = null,
-                                tint = if (showVirtualKeyboard) Blue40 else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        // 只有有按键配置时才显示切换按钮
+                        if (vkeyLayout.hasAnyKey) {
+                            IconButton(onClick = { showVirtualKeyboard = !showVirtualKeyboard }) {
+                                Icon(
+                                    if (showVirtualKeyboard) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
+                                    contentDescription = null,
+                                    tint = if (showVirtualKeyboard) Blue40 else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -132,7 +131,6 @@ fun TerminalScreen(
                 .padding(padding)
                 .imePadding()
         ) {
-            // Terminal display area
             val activeTab = uiState.activeTab
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
@@ -162,35 +160,189 @@ fun TerminalScreen(
                 }
             }
 
-            // Virtual keyboard toolbar
-            if (showVirtualKeyboard) {
+            // 虚拟键盘（由配置驱动，无配置则不显示）
+            if (showVirtualKeyboard && vkeyLayout.hasAnyKey) {
                 HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
-                VirtualKeyboard(
+                DynamicVirtualKeyboard(
+                    layout = vkeyLayout,
                     modifier = Modifier.fillMaxWidth(),
-                    ctrlPressed = ctrlPressed,
-                    altPressed = altPressed,
+                    ctrlPressed  = ctrlPressed,
+                    altPressed   = altPressed,
+                    shiftPressed = shiftPressed,
                     isDisconnected = uiState.activeTab?.isDisconnected == true,
-                    onCtrlToggle = { ctrlPressed = !ctrlPressed; altPressed = false },
-                    onAltToggle  = { altPressed = !altPressed; ctrlPressed = false },
-                    onReconnect  = { viewModel.reconnect(uiState.activeTabIndex) },
-                    onEsc        = viewModel::sendEsc,
-                    onTab        = viewModel::sendTab,
-                    onArrow      = viewModel::sendArrow,
-                    onPageUp     = viewModel::sendPageUp,
-                    onPageDown   = viewModel::sendPageDown,
-                    onHome       = viewModel::sendHome,
-                    onEnd        = viewModel::sendEnd,
-                    onPipe       = viewModel::sendPipe,
-                    onTilde      = viewModel::sendTilde,
-                    onSlash      = viewModel::sendSlash,
-                    onBackslash  = viewModel::sendBackslash,
-                    inputValue   = inputValue,
+                    onKey = { config ->
+                        viewModel.dispatchVKey(
+                            config       = config,
+                            ctrlActive   = ctrlPressed,
+                            altActive    = altPressed,
+                            onToggleCtrl  = { ctrlPressed  = !ctrlPressed;  altPressed  = false; shiftPressed = false },
+                            onToggleAlt   = { altPressed   = !altPressed;   ctrlPressed = false; shiftPressed = false },
+                            onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
+                            onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
+                        )
+                    },
+                    onReconnect = { viewModel.reconnect(uiState.activeTabIndex) },
+                    inputValue = inputValue,
                     onInputChange = { inputValue = it },
                     focusRequester = focusRequester,
                     keyboardController = keyboardController
                 )
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 动态虚拟键盘（由 VKeyLayout 驱动）
+// ---------------------------------------------------------------------------
+@Composable
+private fun DynamicVirtualKeyboard(
+    layout: VKeyLayout,
+    modifier: Modifier = Modifier,
+    ctrlPressed: Boolean,
+    altPressed: Boolean,
+    shiftPressed: Boolean,
+    isDisconnected: Boolean,
+    onKey: (VKeyConfig) -> Unit,
+    onReconnect: () -> Unit,
+    inputValue: TextFieldValue,
+    onInputChange: (TextFieldValue) -> Unit,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
+) {
+    Column(
+        modifier = modifier
+            .background(Color.White)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        if (isDisconnected) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFFFF3E0))
+                    .border(1.dp, Color(0xFFFFB74D), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("连接已断开", fontSize = 12.sp, color = Color(0xFFB35900), fontWeight = FontWeight.Medium)
+                TextButton(onClick = onReconnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+                    Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        // 第一行
+        if (layout.row1.isNotEmpty()) {
+            VKeyRow(
+                keys = layout.row1,
+                ctrlPressed  = ctrlPressed,
+                altPressed   = altPressed,
+                shiftPressed = shiftPressed,
+                onKey = onKey
+            )
+        }
+
+        // 第二行
+        if (layout.row2.isNotEmpty()) {
+            VKeyRow(
+                keys = layout.row2,
+                ctrlPressed  = ctrlPressed,
+                altPressed   = altPressed,
+                shiftPressed = shiftPressed,
+                onKey = onKey
+            )
+        }
+
+        // 隐藏输入框（截获系统键盘输入）
+        androidx.compose.foundation.text.BasicTextField(
+            value = inputValue,
+            onValueChange = onInputChange,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Ascii,
+                capitalization = KeyboardCapitalization.None,
+                autoCorrect = false,
+                imeAction = ImeAction.None
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .focusRequester(focusRequester)
+                .alpha(0f)
+        )
+    }
+}
+
+@Composable
+private fun VKeyRow(
+    keys: List<VKeyConfig>,
+    ctrlPressed: Boolean,
+    altPressed: Boolean,
+    shiftPressed: Boolean,
+    onKey: (VKeyConfig) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        keys.forEach { config ->
+            val isActive = when (config.action) {
+                VKeyAction.TOGGLE_CTRL  -> ctrlPressed
+                VKeyAction.TOGGLE_ALT   -> altPressed
+                VKeyAction.TOGGLE_SHIFT -> shiftPressed
+                else -> false
+            }
+            VKey(
+                label = config.display,
+                onClick = { onKey(config) },
+                isActive = isActive,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VKey(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    isActive: Boolean = false
+) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isActive) Blue40 else Color.White,
+        animationSpec = tween(150), label = "vkey_bg"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isActive) Color.White else Color.Black,
+        animationSpec = tween(150), label = "vkey_text"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isActive) Color.Transparent else Color.Black,
+        animationSpec = tween(150), label = "vkey_border"
+    )
+    Box(
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(bgColor)
+            .border(
+                width = if (isActive) 0.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(7.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            color = textColor,
+            maxLines = 1
+        )
     }
 }
 
@@ -238,149 +390,21 @@ private fun TerminalTabRow(
                     )
                 }
                 Spacer(Modifier.width(5.dp))
-                Text(tab.label, color = textColor, fontSize = 11.sp,
+                Text(
+                    tab.label, color = textColor, fontSize = 11.sp,
                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 120.dp))
+                    modifier = Modifier.widthIn(max = 120.dp)
+                )
                 Spacer(Modifier.width(5.dp))
                 Box(
                     modifier = Modifier.size(14.dp).clip(CircleShape).clickable { onCloseTab(index) },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Close, null, tint = textColor.copy(alpha = 0.7f),
-                        modifier = Modifier.size(10.dp))
+                    Icon(Icons.Filled.Close, null, tint = textColor.copy(alpha = 0.7f), modifier = Modifier.size(10.dp))
                 }
             }
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Virtual keyboard
-// ---------------------------------------------------------------------------
-@Composable
-private fun VirtualKeyboard(
-    modifier: Modifier = Modifier,
-    ctrlPressed: Boolean,
-    altPressed: Boolean,
-    isDisconnected: Boolean,
-    onCtrlToggle: () -> Unit,
-    onAltToggle: () -> Unit,
-    onReconnect: () -> Unit,
-    onEsc: () -> Unit,
-    onTab: () -> Unit,
-    onArrow: (ArrowDirection) -> Unit,
-    onPageUp: () -> Unit,
-    onPageDown: () -> Unit,
-    onHome: () -> Unit,
-    onEnd: () -> Unit,
-    onPipe: () -> Unit,
-    onTilde: () -> Unit,
-    onSlash: () -> Unit,
-    onBackslash: () -> Unit,
-    inputValue: TextFieldValue,
-    onInputChange: (TextFieldValue) -> Unit,
-    focusRequester: FocusRequester,
-    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
-) {
-    Column(
-        modifier = modifier
-            .background(Color.White)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        if (isDisconnected) {
-            Row(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFFFF3E0))
-                    .border(1.dp, Color(0xFFFFB74D), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("连接已断开", fontSize = 12.sp, color = Color(0xFFB35900), fontWeight = FontWeight.Medium)
-                TextButton(onClick = onReconnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
-                    Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            VKey("ESC", onClick = onEsc,                                  modifier = Modifier.weight(1.2f))
-            VKey("TAB", onClick = onTab,                                  modifier = Modifier.weight(1.2f))
-            VKey("↑",   onClick = { onArrow(ArrowDirection.UP) },         modifier = Modifier.weight(0.9f))
-            VKey("↓",   onClick = { onArrow(ArrowDirection.DOWN) },       modifier = Modifier.weight(0.9f))
-            VKey("←",   onClick = { onArrow(ArrowDirection.LEFT) },       modifier = Modifier.weight(0.9f))
-            VKey("→",   onClick = { onArrow(ArrowDirection.RIGHT) },      modifier = Modifier.weight(0.9f))
-            VKey("PgU", onClick = onPageUp,                               modifier = Modifier.weight(1f))
-            VKey("PgD", onClick = onPageDown,                             modifier = Modifier.weight(1f))
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            VKey("CTRL", onClick = onCtrlToggle, isActive = ctrlPressed,  modifier = Modifier.weight(1.3f))
-            VKey("ALT",  onClick = onAltToggle,  isActive = altPressed,   modifier = Modifier.weight(1.1f))
-            VKey("|",    onClick = onPipe,                                 modifier = Modifier.weight(0.85f))
-            VKey("~",    onClick = onTilde,                                modifier = Modifier.weight(0.85f))
-            VKey("/",    onClick = onSlash,                                modifier = Modifier.weight(0.85f))
-            VKey("\\",   onClick = onBackslash,                            modifier = Modifier.weight(0.85f))
-            VKey("Home", onClick = onHome,                                 modifier = Modifier.weight(1.1f))
-            VKey("End",  onClick = onEnd,                                  modifier = Modifier.weight(1f))
-        }
-
-        // Hidden input field
-        androidx.compose.foundation.text.BasicTextField(
-            value = inputValue,
-            onValueChange = onInputChange,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Ascii,
-                capitalization = KeyboardCapitalization.None,
-                autoCorrect = false,
-                imeAction = ImeAction.None
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .focusRequester(focusRequester)
-                .alpha(0f)
-        )
-    }
-}
-
-@Composable
-private fun VKey(
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    isActive: Boolean = false
-) {
-    val bgColor by animateColorAsState(
-        targetValue = if (isActive) Blue40 else Color.White,
-        animationSpec = tween(150), label = "vkey_bg"
-    )
-    val textColor by animateColorAsState(
-        targetValue = if (isActive) Color.White else Color.Black,
-        animationSpec = tween(150), label = "vkey_text"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (isActive) Color.Transparent else Color.Black,
-        animationSpec = tween(150), label = "vkey_border"
-    )
-    Box(
-        modifier = modifier
-            .height(34.dp)
-            .clip(RoundedCornerShape(7.dp))
-            .background(bgColor)
-            .border(
-                width = if (isActive) 0.dp else 1.dp,
-                color = borderColor,
-                shape = RoundedCornerShape(7.dp)
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text = label, fontSize = 11.sp,
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-            color = textColor, maxLines = 1)
     }
 }
 

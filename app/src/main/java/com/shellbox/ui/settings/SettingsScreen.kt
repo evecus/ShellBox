@@ -41,7 +41,7 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
     val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
     val fontSize by settingsStore.fontSize.collectAsState()
@@ -54,7 +54,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = {
-                    Text("终端外观设置", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("终端设置", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -137,6 +137,45 @@ fun SettingsScreen(onBack: () -> Unit) {
                         font = font,
                         isSelected = font == selectedFont,
                         onClick = { settingsStore.setFont(font) }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // ---------------------------------------------------------
+            // 虚拟按键设置入口
+            // ---------------------------------------------------------
+            SectionHeader("虚拟按键")
+            Spacer(Modifier.height(10.dp))
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenKeySettings)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Outlined.Keyboard,
+                        contentDescription = null,
+                        tint = Blue40,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("按键布局设置", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
+                        Text("自定义虚拟键盘的按键内容与排列", fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(
+                        androidx.compose.material.icons.Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

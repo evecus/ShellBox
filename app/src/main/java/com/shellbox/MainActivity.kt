@@ -14,6 +14,7 @@ import com.shellbox.data.model.QuickConnect
 import com.shellbox.data.model.Server
 import com.shellbox.ui.addserver.AddServerScreen
 import com.shellbox.ui.home.HomeScreen
+import com.shellbox.ui.settings.KeySettingsScreen
 import com.shellbox.ui.settings.SettingsScreen
 import com.shellbox.ui.terminal.TerminalScreen
 import com.shellbox.ui.terminal.TerminalViewModel
@@ -56,7 +57,14 @@ fun ShellBoxNavGraph() {
         }
 
         composable("settings") {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenKeySettings = { navController.navigate("key_settings") }
+            )
+        }
+
+        composable("key_settings") {
+            KeySettingsScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
