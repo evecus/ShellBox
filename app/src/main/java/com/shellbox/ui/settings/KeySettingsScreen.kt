@@ -371,6 +371,25 @@ private fun KeyEditDialog(
     val isValid = display.isNotBlank() &&
             (action != VKeyAction.SEND_TEXT || payload.isNotBlank())
 
+    // 分组数据
+    val actionGroups = listOf(
+        "方向键" to listOf(
+            VKeyAction.ARROW_UP, VKeyAction.ARROW_DOWN,
+            VKeyAction.ARROW_LEFT, VKeyAction.ARROW_RIGHT
+        ),
+        "功能键" to listOf(
+            VKeyAction.KEY_ESC, VKeyAction.KEY_TAB, VKeyAction.KEY_ENTER,
+            VKeyAction.KEY_BACKSPACE, VKeyAction.KEY_PAGE_UP,
+            VKeyAction.KEY_PAGE_DOWN, VKeyAction.KEY_HOME, VKeyAction.KEY_END
+        ),
+        "修饰键" to listOf(
+            VKeyAction.TOGGLE_CTRL, VKeyAction.TOGGLE_ALT, VKeyAction.TOGGLE_SHIFT
+        ),
+        "其他" to listOf(
+            VKeyAction.SHOW_KEYBOARD, VKeyAction.SEND_TEXT
+        )
+    )
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
@@ -405,7 +424,9 @@ private fun KeyEditDialog(
                         readOnly = true,
                         label = { Text("按键行为") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(),
                         colors = outlinedTextFieldColors()
                     )
                     ExposedDropdownMenu(
@@ -413,54 +434,45 @@ private fun KeyEditDialog(
                         onDismissRequest = { expanded = false },
                         modifier = Modifier.background(Color.White)
                     ) {
-                        // 分组展示
-                        ActionGroup("方向键") {
-                            listOf(VKeyAction.ARROW_UP, VKeyAction.ARROW_DOWN,
-                                VKeyAction.ARROW_LEFT, VKeyAction.ARROW_RIGHT)
-                        }
-                        ActionGroup("功能键") {
-                            listOf(VKeyAction.KEY_ESC, VKeyAction.KEY_TAB, VKeyAction.KEY_ENTER,
-                                VKeyAction.KEY_BACKSPACE, VKeyAction.KEY_PAGE_UP,
-                                VKeyAction.KEY_PAGE_DOWN, VKeyAction.KEY_HOME, VKeyAction.KEY_END)
-                        }
-                        ActionGroup("修饰键") {
-                            listOf(VKeyAction.TOGGLE_CTRL, VKeyAction.TOGGLE_ALT, VKeyAction.TOGGLE_SHIFT)
-                        }
-                        ActionGroup("其他") {
-                            listOf(VKeyAction.SHOW_KEYBOARD, VKeyAction.SEND_TEXT)
-                        }
-                    }.let { _ ->
-                        // 渲染菜单项
-                        val groups = listOf(
-                            "方向键" to listOf(VKeyAction.ARROW_UP, VKeyAction.ARROW_DOWN, VKeyAction.ARROW_LEFT, VKeyAction.ARROW_RIGHT),
-                            "功能键" to listOf(VKeyAction.KEY_ESC, VKeyAction.KEY_TAB, VKeyAction.KEY_ENTER, VKeyAction.KEY_BACKSPACE, VKeyAction.KEY_PAGE_UP, VKeyAction.KEY_PAGE_DOWN, VKeyAction.KEY_HOME, VKeyAction.KEY_END),
-                            "修饰键" to listOf(VKeyAction.TOGGLE_CTRL, VKeyAction.TOGGLE_ALT, VKeyAction.TOGGLE_SHIFT),
-                            "其他" to listOf(VKeyAction.SHOW_KEYBOARD, VKeyAction.SEND_TEXT)
-                        )
-                        groups.forEach { (groupName, actions) ->
+                        actionGroups.forEach { (groupName, groupActions) ->
+                            // 分组标题（不可点击）
                             DropdownMenuItem(
                                 text = {
-                                    Text(groupName, fontSize = 11.sp,
+                                    Text(
+                                        groupName,
+                                        fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Bold)
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 },
                                 onClick = {},
                                 enabled = false,
                                 modifier = Modifier.background(Color(0xFFF5F5F7))
                             )
-                            actions.forEach { a ->
+                            // 分组内各选项
+                            groupActions.forEach { a ->
+                                val isSelected = a == action
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             a.displayName,
                                             fontSize = 14.sp,
-                                            color = if (a == action) Blue40 else Color.Black,
-                                            fontWeight = if (a == action) FontWeight.SemiBold else FontWeight.Normal
+                                            color = if (isSelected) Blue40 else Color.Black,
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
-                                    onClick = { action = a; expanded = false },
+                                    onClick = {
+                                        action = a
+                                        expanded = false
+                                    },
                                     trailingIcon = {
-                                        if (a == action) Icon(Icons.Filled.Check, null, tint = Blue40, modifier = Modifier.size(16.dp))
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Filled.Check, null,
+                                                tint = Blue40,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 )
                             }
@@ -495,8 +507,13 @@ private fun KeyEditDialog(
                     Spacer(Modifier.width(8.dp))
                     Button(
                         onClick = {
-                            onConfirm(VKeyConfig(display.trim(), action,
-                                if (action == VKeyAction.SEND_TEXT) payload else ""))
+                            onConfirm(
+                                VKeyConfig(
+                                    display = display.trim(),
+                                    action  = action,
+                                    payload = if (action == VKeyAction.SEND_TEXT) payload else ""
+                                )
+                            )
                         },
                         enabled = isValid,
                         colors = ButtonDefaults.buttonColors(containerColor = Blue40)
@@ -513,13 +530,8 @@ private fun KeyEditDialog(
 // 辅助函数
 // ---------------------------------------------------------------------------
 private fun actionLabel(config: VKeyConfig): String =
-    if (config.action == VKeyAction.SEND_TEXT)
-        "自定义文本"
-    else
-        config.action.displayName
-
-@Composable
-private fun ActionGroup(name: String, actions: () -> List<VKeyAction>) = Unit  // 占位，实际渲染在 let 块中完成
+    if (config.action == VKeyAction.SEND_TEXT) "自定义文本"
+    else config.action.displayName
 
 @Composable
 private fun outlinedTextFieldColors() = OutlinedTextFieldDefaults.colors(
