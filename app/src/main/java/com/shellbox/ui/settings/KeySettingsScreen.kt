@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +57,7 @@ fun KeySettingsScreen(onBack: () -> Unit) {
                     IconButton(onClick = {
                         store.setLayout(VKeyLayout.DEFAULT)
                     }) {
-                        Icon(Icons.Outlined.RestartAlt, contentDescription = "恢复默认")
+                        Icon(Icons.Outlined.Refresh, contentDescription = "恢复默认")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -298,7 +299,7 @@ private fun KeyItemRow(
 
             // 删除按钮
             IconButton(onClick = onDelete) {
-                Icon(Icons.Outlined.DeleteOutline, null,
+                Icon(Icons.Outlined.Delete, null,
                     tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
             }
 

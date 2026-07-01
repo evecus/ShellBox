@@ -11,8 +11,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -161,7 +163,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        androidx.compose.material.icons.Icons.Outlined.Keyboard,
+                        Icons.Outlined.Keyboard,
                         contentDescription = null,
                         tint = Blue40,
                         modifier = Modifier.size(22.dp)
@@ -173,7 +175,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(
-                        androidx.compose.material.icons.Icons.Filled.ChevronRight,
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
