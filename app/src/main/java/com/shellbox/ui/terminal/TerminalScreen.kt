@@ -107,6 +107,7 @@ fun TerminalScreen(
         // 当 ime inset 为 0 时，虚拟键盘隐藏
         val imeVisible = WindowInsets.isImeVisible
 
+        // 外层 Box 用于叠放重连按钮等浮层
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -114,43 +115,47 @@ fun TerminalScreen(
         ) {
             val activeTab = uiState.activeTab
 
-            // 终端画面：始终填满整个区域，不受键盘影响，避免键盘弹出时 resize
-            Box(modifier = Modifier.fillMaxSize()) {
-                when {
-                    activeTab == null ->
-                        EmptyTerminalPlaceholder(onBack)
-                    activeTab.isConnecting ->
-                        ConnectingIndicator(activeTab.label)
-                    activeTab.errorMessage != null ->
-                        ErrorDisplay(activeTab.errorMessage, onBack)
-                    else -> {
-                        val bridge = viewModel.getBridge(activeTab.sessionId)
-                        if (bridge != null) {
-                            TerminalCanvas(
-                                emulator = bridge.emulator,
-                                renderTick = activeTab.renderTick,
-                                onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
-                                onRequestFocus = {
-                                    focusRequester.requestFocus()
-                                    keyboardController?.show()
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                                fontSizeSp = fontSize,
-                                terminalFont = terminalFont
-                            )
+            // 主列：终端画面 + 虚拟键盘 + 隐藏输入框
+            // imePadding() 让整列从底部随系统键盘收缩，终端内容始终显示在键盘上方
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+            ) {
+                // 终端画面：weight(1f) 占满虚拟键盘以上的全部剩余空间
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    when {
+                        activeTab == null ->
+                            EmptyTerminalPlaceholder(onBack)
+                        activeTab.isConnecting ->
+                            ConnectingIndicator(activeTab.label)
+                        activeTab.errorMessage != null ->
+                            ErrorDisplay(activeTab.errorMessage, onBack)
+                        else -> {
+                            val bridge = viewModel.getBridge(activeTab.sessionId)
+                            if (bridge != null) {
+                                TerminalCanvas(
+                                    emulator = bridge.emulator,
+                                    renderTick = activeTab.renderTick,
+                                    onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
+                                    onRequestFocus = {
+                                        focusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                    fontSizeSp = fontSize,
+                                    terminalFont = terminalFont
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            // 虚拟键盘 + 隐藏输入框：固定在底部，随 ime 上移
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .imePadding()
-            ) {
-                // 虚拟键盘：系统键盘可见时才显示，紧贴系统键盘上方
+                // 虚拟键盘：系统键盘可见时才显示，紧贴终端下方 / 系统键盘上方
                 if (imeVisible && vkeyLayout.hasAnyKey) {
                     HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
                     DynamicVirtualKeyboard(
@@ -216,13 +221,10 @@ fun TerminalScreen(
                     onClick = { viewModel.reconnect(uiState.activeTabIndex) },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
+                        .imePadding()
                         .padding(
                             end = 20.dp,
                             bottom = if (imeVisible && vkeyLayout.hasAnyKey) 8.dp else 24.dp
-                        )
-                        // 若虚拟键盘可见，FAB 需要跟着键盘上移
-                        .then(
-                            if (imeVisible) Modifier.imePadding() else Modifier
                         )
                 )
             }
