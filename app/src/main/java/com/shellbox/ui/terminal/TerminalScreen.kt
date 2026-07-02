@@ -24,7 +24,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -181,13 +180,26 @@ fun TerminalScreen(
                                 onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
                                 onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
                             )
-                        },
-                        inputValue = inputValue,
-                        onInputChange = { inputValue = it },
-                        focusRequester = focusRequester,
-                        keyboardController = keyboardController
+                        }
                     )
                 }
+
+                // 隐藏输入框：始终挂载，保证 focusRequester 随时有效
+                androidx.compose.foundation.text.BasicTextField(
+                    value = inputValue,
+                    onValueChange = { inputValue = it },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Ascii,
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrect = false,
+                        imeAction = ImeAction.None
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .focusRequester(focusRequester)
+                        .alpha(0f)
+                )
             }
 
             // 右下角悬浮重连按钮（仅断开时显示）
@@ -246,11 +258,7 @@ private fun DynamicVirtualKeyboard(
     ctrlPressed: Boolean,
     altPressed: Boolean,
     shiftPressed: Boolean,
-    onKey: (VKeyConfig) -> Unit,
-    inputValue: TextFieldValue,
-    onInputChange: (TextFieldValue) -> Unit,
-    focusRequester: FocusRequester,
-    keyboardController: SoftwareKeyboardController?
+    onKey: (VKeyConfig) -> Unit
 ) {
     Column(
         modifier = modifier
@@ -279,23 +287,6 @@ private fun DynamicVirtualKeyboard(
                 onKey = onKey
             )
         }
-
-        // 隐藏输入框（截获系统键盘输入）
-        androidx.compose.foundation.text.BasicTextField(
-            value = inputValue,
-            onValueChange = onInputChange,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Ascii,
-                capitalization = KeyboardCapitalization.None,
-                autoCorrect = false,
-                imeAction = ImeAction.None
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .focusRequester(focusRequester)
-                .alpha(0f)
-        )
     }
 }
 
