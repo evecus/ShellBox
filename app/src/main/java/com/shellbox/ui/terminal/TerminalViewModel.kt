@@ -104,13 +104,19 @@ class TerminalViewModel @Inject constructor(
         }
     }
 
+    private var resizeJob: kotlinx.coroutines.Job? = null
+
     /** Called from TerminalCanvas when layout size changes to update cols/rows */
     fun onTerminalResize(cols: Int, rows: Int) {
         if (cols == termCols && rows == termRows) return
-        termCols = cols
-        termRows = rows
-        // Resize all active bridges
-        bridges.values.forEach { it.resize(cols, rows) }
+        resizeJob?.cancel()
+        resizeJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(300)
+            if (cols == termCols && rows == termRows) return@launch
+            termCols = cols
+            termRows = rows
+            bridges.values.forEach { it.resize(cols, rows) }
+        }
     }
 
     fun getBridge(tabId: String): SshTerminalBridge? = bridges[tabId]
@@ -147,49 +153,6 @@ class TerminalViewModel @Inject constructor(
     fun sendSlash()     = sendInput("/")
     fun sendBackslash() = sendInput("\\")
     fun sendAlt(char: Char) = sendInput("\u001B${char}")
-    fun sendEnter()  = sendInput("\r")
-    fun sendShift()  = Unit  // Shift 单独无意义，留作扩展占位
-
-    /**
-     * 根据 VKeyConfig 分派动作。
-     * ctrlActive / altActive 由调用方维护，用于 TOGGLE_CTRL / TOGGLE_ALT 的 toggle 回调。
-     */
-    fun dispatchVKey(
-        config: VKeyConfig,
-        ctrlActive: Boolean,
-        altActive: Boolean,
-        onToggleCtrl: () -> Unit,
-        onToggleAlt: () -> Unit,
-        onToggleShift: () -> Unit,
-        onShowKeyboard: () -> Unit
-    ) {
-        when (config.action) {
-            VKeyAction.ARROW_UP    -> sendArrow(ArrowDirection.UP)
-            VKeyAction.ARROW_DOWN  -> sendArrow(ArrowDirection.DOWN)
-            VKeyAction.ARROW_LEFT  -> sendArrow(ArrowDirection.LEFT)
-            VKeyAction.ARROW_RIGHT -> sendArrow(ArrowDirection.RIGHT)
-            VKeyAction.KEY_PAGE_UP   -> sendPageUp()
-            VKeyAction.KEY_PAGE_DOWN -> sendPageDown()
-            VKeyAction.KEY_HOME      -> sendHome()
-            VKeyAction.KEY_END       -> sendEnd()
-            VKeyAction.KEY_ESC       -> sendEsc()
-            VKeyAction.KEY_TAB       -> sendTab()
-            VKeyAction.KEY_ENTER     -> sendEnter()
-            VKeyAction.KEY_BACKSPACE -> sendBackspace()
-            VKeyAction.TOGGLE_CTRL   -> onToggleCtrl()
-            VKeyAction.TOGGLE_ALT    -> onToggleAlt()
-            VKeyAction.TOGGLE_SHIFT  -> onToggleShift()
-            VKeyAction.SHOW_KEYBOARD -> onShowKeyboard()
-            VKeyAction.SEND_TEXT     -> {
-                val text = config.payload
-                when {
-                    ctrlActive && text.length == 1 -> { sendCtrlKey(text[0]); onToggleCtrl() }
-                    altActive  && text.length == 1 -> { sendAlt(text[0]);     onToggleAlt()  }
-                    else -> sendInput(text)
-                }
-            }
-        }
-    }
 
     fun selectTab(index: Int) {
         _uiState.update { it.copy(activeTabIndex = index) }

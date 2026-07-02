@@ -127,41 +127,44 @@ fun TerminalScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 主内容区：终端画面，底部留出虚拟键盘高度（仅当键盘可见时）
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding()
-            ) {
-                val activeTab = uiState.activeTab
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    when {
-                        activeTab == null ->
-                            EmptyTerminalPlaceholder(onBack)
-                        activeTab.isConnecting ->
-                            ConnectingIndicator(activeTab.label)
-                        activeTab.errorMessage != null ->
-                            ErrorDisplay(activeTab.errorMessage, onBack)
-                        else -> {
-                            val bridge = viewModel.getBridge(activeTab.sessionId)
-                            if (bridge != null) {
-                                TerminalCanvas(
-                                    emulator = bridge.emulator,
-                                    renderTick = activeTab.renderTick,
-                                    onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
-                                    onRequestFocus = {
-                                        focusRequester.requestFocus()
-                                        keyboardController?.show()
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                    fontSizeSp = fontSize,
-                                    terminalFont = terminalFont
-                                )
-                            }
+            val activeTab = uiState.activeTab
+
+            // 终端画面：始终填满整个区域，不受键盘影响，避免键盘弹出时 resize
+            Box(modifier = Modifier.fillMaxSize()) {
+                when {
+                    activeTab == null ->
+                        EmptyTerminalPlaceholder(onBack)
+                    activeTab.isConnecting ->
+                        ConnectingIndicator(activeTab.label)
+                    activeTab.errorMessage != null ->
+                        ErrorDisplay(activeTab.errorMessage, onBack)
+                    else -> {
+                        val bridge = viewModel.getBridge(activeTab.sessionId)
+                        if (bridge != null) {
+                            TerminalCanvas(
+                                emulator = bridge.emulator,
+                                renderTick = activeTab.renderTick,
+                                onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
+                                onRequestFocus = {
+                                    focusRequester.requestFocus()
+                                    keyboardController?.show()
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                                fontSizeSp = fontSize,
+                                terminalFont = terminalFont
+                            )
                         }
                     }
                 }
+            }
 
+            // 虚拟键盘 + 隐藏输入框：固定在底部，随 ime 上移
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+            ) {
                 // 虚拟键盘：系统键盘可见时才显示，紧贴系统键盘上方
                 if (imeVisible && vkeyLayout.hasAnyKey) {
                     HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
