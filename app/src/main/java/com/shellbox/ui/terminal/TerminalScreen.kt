@@ -53,7 +53,8 @@ fun TerminalScreen(
     val terminalFont  by settingsStore.font.collectAsState()
     val vkeyLayout    by vkeyStore.layout.collectAsState()
 
-    val SENTINEL = " "
+    // 用零宽字符作为哨兵，避免空格被输入法识别为真实字符导致首字母前多一个空格
+    val SENTINEL = "\u200B"
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
 
     LaunchedEffect(inputValue) {
