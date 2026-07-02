@@ -165,8 +165,9 @@ fun TerminalCanvas(
                     onDragEnd = { dragAccumPx = 0f },
                     onDragCancel = { dragAccumPx = 0f },
                     onVerticalDrag = { _, dragAmount ->
-                        // dragAmount > 0 = 手指向下滑 = 想看下面内容 = scrollRows 减少
-                        // dragAmount < 0 = 手指向上滑 = 想看上面内容 = scrollRows 增加
+                        // 自然滚动（与手机系统一致）：
+                        // dragAmount > 0 = 手指向下滑 = 内容随手指向下移动 = 显示更早的历史 = scrollRows 增加
+                        // dragAmount < 0 = 手指向上滑 = 内容随手指向上移动 = 显示更新的内容 = scrollRows 减少
                         dragAccumPx += dragAmount
                         val rowsDelta = (dragAccumPx / cellH).toInt()
                         if (rowsDelta != 0) {
@@ -178,9 +179,9 @@ fun TerminalCanvas(
                                 f.getInt(screen)
                             } catch (_: Exception) { emulator.mRows }
                             val maxScroll = (totalLines - emulator.mRows).coerceAtLeast(0)
-                            // rowsDelta > 0（手指下滑）→ scrollRows 减少（回到最新内容方向）
-                            // rowsDelta < 0（手指上滑）→ scrollRows 增加（看历史内容）
-                            scrollRows = (scrollRows - rowsDelta).coerceIn(0, maxScroll)
+                            // rowsDelta > 0（手指下滑）→ scrollRows 增加（查看历史内容）
+                            // rowsDelta < 0（手指上滑）→ scrollRows 减少（回到最新内容）
+                            scrollRows = (scrollRows + rowsDelta).coerceIn(0, maxScroll)
                         }
                     }
                 )

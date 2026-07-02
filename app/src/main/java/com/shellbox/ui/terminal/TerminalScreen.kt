@@ -53,27 +53,12 @@ fun TerminalScreen(
     val terminalFont  by settingsStore.font.collectAsState()
     val vkeyLayout    by vkeyStore.layout.collectAsState()
 
-    // 用零宽字符作为哨兵，避免空格被输入法识别为真实字符导致首字母前多一个空格
+    // 用零宽字符作为哨兵，避免输入法把空文本框识别为"词尾"并在下一字符前插入空格。
+    // 同步在 onValueChange 里处理（而非 LaunchedEffect），确保字段在同一帧内立即重置，
+    // 防止输入法检测到"词已提交"并自动补全空格。
+    // KeyboardType.Password 进一步禁用所有自动更正与预测，根除字母间多余空格。
     val SENTINEL = "\u200B"
-    var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
-
-    LaunchedEffect(inputValue) {
-        val new = inputValue.text
-        if (new == SENTINEL) return@LaunchedEffect
-        if (new.length < SENTINEL.length) {
-            viewModel.sendBackspace()
-        } else {
-            val added = new.removePrefix(SENTINEL)
-            if (added.isNotEmpty()) {
-                when {
-                    ctrlPressed -> { added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }; ctrlPressed = false }
-                    altPressed  -> { added.lastOrNull()?.let { viewModel.sendAlt(it) };     altPressed  = false }
-                    else        -> viewModel.sendInput(added)
-                }
-            }
-        }
-        inputValue = TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))
-    }
+    var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))) }
 
     val titleText = uiState.activeTab?.label ?: "Terminal"
     val isDisconnected = uiState.activeTab?.isDisconnected == true
@@ -191,9 +176,28 @@ fun TerminalScreen(
                 // 隐藏输入框：始终挂载，保证 focusRequester 随时有效
                 androidx.compose.foundation.text.BasicTextField(
                     value = inputValue,
-                    onValueChange = { inputValue = it },
+                    onValueChange = { newValue ->
+                        val new = newValue.text
+                        // 无变化则忽略
+                        if (new == SENTINEL) return@BasicTextField
+                        if (new.length < SENTINEL.length) {
+                            // 退格：哨兵字符被删除
+                            viewModel.sendBackspace()
+                        } else {
+                            val added = new.removePrefix(SENTINEL)
+                            if (added.isNotEmpty()) {
+                                when {
+                                    ctrlPressed  -> { added.lastOrNull()?.let { viewModel.sendCtrlKey(it) }; ctrlPressed  = false }
+                                    altPressed   -> { added.lastOrNull()?.let { viewModel.sendAlt(it) };     altPressed   = false }
+                                    else         -> viewModel.sendInput(added)
+                                }
+                            }
+                        }
+                        // 同步立即重置，防止输入法在下一次按键前插入自动补全空格
+                        inputValue = TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))
+                    },
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Ascii,
+                        keyboardType = KeyboardType.Password,
                         capitalization = KeyboardCapitalization.None,
                         autoCorrect = false,
                         imeAction = ImeAction.None
