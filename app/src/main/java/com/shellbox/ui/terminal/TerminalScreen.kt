@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -19,11 +18,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -45,14 +46,13 @@ fun TerminalScreen(
     var ctrlPressed  by remember { mutableStateOf(false) }
     var altPressed   by remember { mutableStateOf(false) }
     var shiftPressed by remember { mutableStateOf(false) }
-    var showVirtualKeyboard by remember { mutableStateOf(true) }
 
     val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
     val vkeyStore     = remember { VKeyLayoutStore.getInstance(context) }
-    val fontSize   by settingsStore.fontSize.collectAsState()
-    val terminalFont by settingsStore.font.collectAsState()
-    val vkeyLayout by vkeyStore.layout.collectAsState()
+    val fontSize      by settingsStore.fontSize.collectAsState()
+    val terminalFont  by settingsStore.font.collectAsState()
+    val vkeyLayout    by vkeyStore.layout.collectAsState()
 
     val SENTINEL = " "
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL)) }
@@ -76,6 +76,7 @@ fun TerminalScreen(
     }
 
     val titleText = uiState.activeTab?.label ?: "Terminal"
+    val isDisconnected = uiState.activeTab?.isDisconnected == true
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -96,18 +97,8 @@ fun TerminalScreen(
                             Icon(Icons.Filled.ArrowBack, null)
                         }
                     },
-                    actions = {
-                        // 只有有按键配置时才显示切换按钮
-                        if (vkeyLayout.hasAnyKey) {
-                            IconButton(onClick = { showVirtualKeyboard = !showVirtualKeyboard }) {
-                                Icon(
-                                    if (showVirtualKeyboard) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard,
-                                    contentDescription = null,
-                                    tint = if (showVirtualKeyboard) Blue40 else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    },
+                    // 右上角不再显示键盘切换按钮
+                    actions = {},
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
                 if (uiState.tabs.size > 1) {
@@ -126,67 +117,93 @@ fun TerminalScreen(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
-        Column(
+        // 监听系统键盘显示状态，用 WindowInsets 判断
+        // imePadding() 让内容区随键盘收缩，虚拟键盘紧贴其上方
+        // 当 ime inset 为 0 时，虚拟键盘隐藏
+        val imeVisible = WindowInsets.isImeVisible
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
         ) {
-            val activeTab = uiState.activeTab
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when {
-                    activeTab == null ->
-                        EmptyTerminalPlaceholder(onBack)
-                    activeTab.isConnecting ->
-                        ConnectingIndicator(activeTab.label)
-                    activeTab.errorMessage != null ->
-                        ErrorDisplay(activeTab.errorMessage, onBack)
-                    else -> {
-                        val bridge = viewModel.getBridge(activeTab.sessionId)
-                        if (bridge != null) {
-                            TerminalCanvas(
-                                emulator = bridge.emulator,
-                                renderTick = activeTab.renderTick,
-                                onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
-                                onRequestFocus = {
-                                    focusRequester.requestFocus()
-                                    keyboardController?.show()
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                                fontSizeSp = fontSize,
-                                terminalFont = terminalFont
-                            )
+            // 主内容区：终端画面，底部留出虚拟键盘高度（仅当键盘可见时）
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding()
+            ) {
+                val activeTab = uiState.activeTab
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    when {
+                        activeTab == null ->
+                            EmptyTerminalPlaceholder(onBack)
+                        activeTab.isConnecting ->
+                            ConnectingIndicator(activeTab.label)
+                        activeTab.errorMessage != null ->
+                            ErrorDisplay(activeTab.errorMessage, onBack)
+                        else -> {
+                            val bridge = viewModel.getBridge(activeTab.sessionId)
+                            if (bridge != null) {
+                                TerminalCanvas(
+                                    emulator = bridge.emulator,
+                                    renderTick = activeTab.renderTick,
+                                    onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
+                                    onRequestFocus = {
+                                        focusRequester.requestFocus()
+                                        keyboardController?.show()
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                    fontSizeSp = fontSize,
+                                    terminalFont = terminalFont
+                                )
+                            }
                         }
                     }
                 }
+
+                // 虚拟键盘：系统键盘可见时才显示，紧贴系统键盘上方
+                if (imeVisible && vkeyLayout.hasAnyKey) {
+                    HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+                    DynamicVirtualKeyboard(
+                        layout = vkeyLayout,
+                        modifier = Modifier.fillMaxWidth(),
+                        ctrlPressed  = ctrlPressed,
+                        altPressed   = altPressed,
+                        shiftPressed = shiftPressed,
+                        onKey = { config ->
+                            viewModel.dispatchVKey(
+                                config        = config,
+                                ctrlActive    = ctrlPressed,
+                                altActive     = altPressed,
+                                onToggleCtrl  = { ctrlPressed  = !ctrlPressed;  altPressed  = false; shiftPressed = false },
+                                onToggleAlt   = { altPressed   = !altPressed;   ctrlPressed = false; shiftPressed = false },
+                                onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
+                                onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
+                            )
+                        },
+                        inputValue = inputValue,
+                        onInputChange = { inputValue = it },
+                        focusRequester = focusRequester,
+                        keyboardController = keyboardController
+                    )
+                }
             }
 
-            // 虚拟键盘（由配置驱动，无配置则不显示）
-            if (showVirtualKeyboard && vkeyLayout.hasAnyKey) {
-                HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
-                DynamicVirtualKeyboard(
-                    layout = vkeyLayout,
-                    modifier = Modifier.fillMaxWidth(),
-                    ctrlPressed  = ctrlPressed,
-                    altPressed   = altPressed,
-                    shiftPressed = shiftPressed,
-                    isDisconnected = uiState.activeTab?.isDisconnected == true,
-                    onKey = { config ->
-                        viewModel.dispatchVKey(
-                            config       = config,
-                            ctrlActive   = ctrlPressed,
-                            altActive    = altPressed,
-                            onToggleCtrl  = { ctrlPressed  = !ctrlPressed;  altPressed  = false; shiftPressed = false },
-                            onToggleAlt   = { altPressed   = !altPressed;   ctrlPressed = false; shiftPressed = false },
-                            onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
-                            onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
+            // 右下角悬浮重连按钮（仅断开时显示）
+            if (isDisconnected) {
+                ReconnectFab(
+                    onClick = { viewModel.reconnect(uiState.activeTabIndex) },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = 20.dp,
+                            bottom = if (imeVisible && vkeyLayout.hasAnyKey) 8.dp else 24.dp
                         )
-                    },
-                    onReconnect = { viewModel.reconnect(uiState.activeTabIndex) },
-                    inputValue = inputValue,
-                    onInputChange = { inputValue = it },
-                    focusRequester = focusRequester,
-                    keyboardController = keyboardController
+                        // 若虚拟键盘可见，FAB 需要跟着键盘上移
+                        .then(
+                            if (imeVisible) Modifier.imePadding() else Modifier
+                        )
                 )
             }
         }
@@ -194,7 +211,33 @@ fun TerminalScreen(
 }
 
 // ---------------------------------------------------------------------------
-// 动态虚拟键盘（由 VKeyLayout 驱动）
+// 悬浮重连按钮（圆形，蓝色刷新图标）
+// ---------------------------------------------------------------------------
+@Composable
+private fun ReconnectFab(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .shadow(6.dp, CircleShape)
+            .clip(CircleShape)
+            .background(Blue40)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Filled.Refresh,
+            contentDescription = "重新连接",
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 动态虚拟键盘（由 VKeyLayout 驱动，无 isDisconnected 提示条）
 // ---------------------------------------------------------------------------
 @Composable
 private fun DynamicVirtualKeyboard(
@@ -203,13 +246,11 @@ private fun DynamicVirtualKeyboard(
     ctrlPressed: Boolean,
     altPressed: Boolean,
     shiftPressed: Boolean,
-    isDisconnected: Boolean,
     onKey: (VKeyConfig) -> Unit,
-    onReconnect: () -> Unit,
     inputValue: TextFieldValue,
     onInputChange: (TextFieldValue) -> Unit,
     focusRequester: FocusRequester,
-    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?
+    keyboardController: SoftwareKeyboardController?
 ) {
     Column(
         modifier = modifier
@@ -217,24 +258,6 @@ private fun DynamicVirtualKeyboard(
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        if (isDisconnected) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFFFF3E0))
-                    .border(1.dp, Color(0xFFFFB74D), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("连接已断开", fontSize = 12.sp, color = Color(0xFFB35900), fontWeight = FontWeight.Medium)
-                TextButton(onClick = onReconnect, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
-                    Text("重新连接", fontSize = 12.sp, color = Blue40, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-
         // 第一行
         if (layout.row1.isNotEmpty()) {
             VKeyRow(
