@@ -4,6 +4,7 @@ import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -111,45 +112,44 @@ fun TerminalCanvas(
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
     val typeface = remember(terminalFont) { TerminalTypefaceCache.resolve(context, terminalFont) }
 
-    // Build Android Paint objects once; reuse across draws. Recreated whenever
-    // the chosen typeface or size changes so the canvas reflects new settings.
     val textPaint = remember(typeface, fontSizePx) {
         android.graphics.Paint().apply {
             this.typeface = typeface
             textSize = fontSizePx
             isAntiAlias = true
-            isSubpixelText = false  // disable subpixel to keep monospace grid sharp
+            isSubpixelText = false
             letterSpacing = 0f
         }
     }
 
-    // Measure a monospace char to get cell dimensions.
-    // Since each glyph is later horizontally normalized to exactly this width
-    // (see textScaleX usage below), basing it on a representative alphanumeric
-    // sample gives natural-looking proportions instead of the widest glyph (e.g. "M").
     val cellW = remember(fontSizePx, typeface) {
         val measured = textPaint.measureText("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") / 62f
         measured
     }
     val cellH = remember(fontSizePx, typeface) {
         val fm = textPaint.fontMetrics
-        // Add a small leading gap so lines don't touch
         (fm.descent - fm.ascent) * 1.05f
     }
     val baseline = remember(fontSizePx, typeface) {
-        -textPaint.fontMetrics.ascent  // offset from cell top to baseline
+        -textPaint.fontMetrics.ascent
     }
 
-    // Blink cursor every 500ms
-    var cursorVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(500)
-            cursorVisible = !cursorVisible
+    // 光标固定显示，不闪烁
+    val cursorVisible = true
+
+    // scrollback 偏移：0 = 最底部（正常视图），正数 = 向上滚动的行数
+    var scrollRows by remember { mutableIntStateOf(0) }
+    // 累计像素拖动量（用于亚行精度滚动）
+    var dragAccumPx by remember { mutableFloatStateOf(0f) }
+
+    // 新数据到来时，只有用户在底部（未手动上翻）才自动保持底部
+    // 如果用户正在查看历史，不强制跳回底部
+    LaunchedEffect(renderTick) {
+        if (scrollRows == 0) {
+            dragAccumPx = 0f
         }
     }
 
-    // Suppress "unused renderTick" warning — reading it here ensures recompose on data
     @Suppress("UNUSED_EXPRESSION")
     renderTick
 
@@ -158,6 +158,29 @@ fun TerminalCanvas(
             .background(Color.White)
             .pointerInput(Unit) {
                 detectTapGestures { onRequestFocus() }
+            }
+            .pointerInput(cellH) {
+                detectVerticalDragGestures(
+                    onDragStart = { dragAccumPx = 0f },
+                    onDragEnd = { dragAccumPx = 0f },
+                    onDragCancel = { dragAccumPx = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        // 向上拖动（负值）= 查看历史 = scrollRows 增加
+                        dragAccumPx -= dragAmount
+                        val rowsDelta = (dragAccumPx / cellH).toInt()
+                        if (rowsDelta != 0) {
+                            dragAccumPx -= rowsDelta * cellH
+                            val screen = synchronized(emulator) { emulator.screen }
+                            val totalLines = try {
+                                val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                                f.isAccessible = true
+                                f.getInt(screen)
+                            } catch (_: Exception) { emulator.mRows }
+                            val maxScroll = (totalLines - emulator.mRows).coerceAtLeast(0)
+                            scrollRows = (scrollRows + rowsDelta).coerceIn(0, maxScroll)
+                        }
+                    }
+                )
             }
             .onSizeChanged { size ->
                 if (cellW > 0f && cellH > 0f) {
@@ -174,7 +197,17 @@ fun TerminalCanvas(
         val cursorRow = emulator.cursorRow
         val cursorCol = emulator.cursorCol
 
-        // Reflect mLines once per frame (field cached by JVM after first access)
+        // 计算 scrollback 的起始行（从 buffer 顶部）
+        // scrollRows=0 表示正常视图（最后 rows 行）
+        val totalLines = try {
+            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+            f.isAccessible = true
+            f.getInt(screen)
+        } catch (_: Exception) { rows }
+        // 实际可向上滚动的最大行数
+        val maxScroll = (totalLines - rows).coerceAtLeast(0)
+        val effectiveScroll = scrollRows.coerceIn(0, maxScroll)
+
         val mLinesField = TerminalBuffer::class.java.getDeclaredField("mLines")
             .also { it.isAccessible = true }
         @Suppress("UNCHECKED_CAST")
@@ -191,9 +224,14 @@ fun TerminalCanvas(
         } catch (_: Exception) { 0L }
 
         for (row in 0 until rows) {
+            // 当滚动时，从 buffer 更早的位置读取行
+            val bufferRow = row - effectiveScroll
             val line: TerminalRow = try {
-                mLines[screen.externalToInternalRow(row)] ?: continue
+                mLines[screen.externalToInternalRow(bufferRow)] ?: continue
             } catch (_: Exception) { continue }
+
+            // 滚动时光标不显示（不在当前视图的正常位置）
+            val showCursor = effectiveScroll == 0 && row == cursorRow && cursorVisible
 
             var charIndex = 0
             var col = 0
@@ -236,7 +274,7 @@ fun TerminalCanvas(
                 if (isInverse) { val tmp = fg; fg = bg; bg = tmp }
 
                 // Is cursor here?
-                val isCursor = row == cursorRow && col == cursorCol && cursorVisible
+                val isCursor = showCursor && col == cursorCol
                 if (isCursor) { val tmp = fg; fg = bg; bg = tmp }
 
                 // Advance by display width (wide chars take 2 columns)
