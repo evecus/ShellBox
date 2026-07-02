@@ -153,6 +153,45 @@ class TerminalViewModel @Inject constructor(
     fun sendSlash()     = sendInput("/")
     fun sendBackslash() = sendInput("\\")
     fun sendAlt(char: Char) = sendInput("\u001B${char}")
+    fun sendEnter()  = sendInput("\r")
+    fun sendShift()  = Unit
+
+    fun dispatchVKey(
+        config: VKeyConfig,
+        ctrlActive: Boolean,
+        altActive: Boolean,
+        onToggleCtrl: () -> Unit,
+        onToggleAlt: () -> Unit,
+        onToggleShift: () -> Unit,
+        onShowKeyboard: () -> Unit
+    ) {
+        when (config.action) {
+            VKeyAction.ARROW_UP    -> sendArrow(ArrowDirection.UP)
+            VKeyAction.ARROW_DOWN  -> sendArrow(ArrowDirection.DOWN)
+            VKeyAction.ARROW_LEFT  -> sendArrow(ArrowDirection.LEFT)
+            VKeyAction.ARROW_RIGHT -> sendArrow(ArrowDirection.RIGHT)
+            VKeyAction.KEY_PAGE_UP   -> sendPageUp()
+            VKeyAction.KEY_PAGE_DOWN -> sendPageDown()
+            VKeyAction.KEY_HOME      -> sendHome()
+            VKeyAction.KEY_END       -> sendEnd()
+            VKeyAction.KEY_ESC       -> sendEsc()
+            VKeyAction.KEY_TAB       -> sendTab()
+            VKeyAction.KEY_ENTER     -> sendEnter()
+            VKeyAction.KEY_BACKSPACE -> sendBackspace()
+            VKeyAction.TOGGLE_CTRL   -> onToggleCtrl()
+            VKeyAction.TOGGLE_ALT    -> onToggleAlt()
+            VKeyAction.TOGGLE_SHIFT  -> onToggleShift()
+            VKeyAction.SHOW_KEYBOARD -> onShowKeyboard()
+            VKeyAction.SEND_TEXT     -> {
+                val text = config.payload
+                when {
+                    ctrlActive && text.length == 1 -> { sendCtrlKey(text[0]); onToggleCtrl() }
+                    altActive  && text.length == 1 -> { sendAlt(text[0]);     onToggleAlt()  }
+                    else -> sendInput(text)
+                }
+            }
+        }
+    }
 
     fun selectTab(index: Int) {
         _uiState.update { it.copy(activeTabIndex = index) }
