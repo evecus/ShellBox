@@ -45,6 +45,26 @@ class TerminalViewModel @Inject constructor(
     private val bridges = mutableMapOf<String, SshTerminalBridge>()
     private val reconnectMap = mutableMapOf<String, suspend () -> SshResult>()
 
+    /**
+     * 每个 tab 的直接重绘回调（view.postInvalidate()）。
+     * 提前存储，以便 bridge 创建后立即注入；bridge 未就绪时也不会丢失。
+     */
+    private val invalidateCallbacks = mutableMapOf<String, () -> Unit>()
+
+    /**
+     * 由 TerminalScreen composable 注册，注入 view.postInvalidate()。
+     * SSH 数据到达时 bridge 直接调用，绕过 Compose 重组，实时更新画面。
+     */
+    fun registerInvalidateCallback(tabId: String, callback: () -> Unit) {
+        invalidateCallbacks[tabId] = callback
+        bridges[tabId]?.onInvalidate = callback
+    }
+
+    fun unregisterInvalidateCallback(tabId: String) {
+        invalidateCallbacks.remove(tabId)
+        bridges[tabId]?.onInvalidate = null
+    }
+
     // Current terminal dimensions — updated from TerminalCanvas layout
     private var termCols = 80
     private var termRows = 24
@@ -93,6 +113,8 @@ class TerminalViewModel @Inject constructor(
                         scope = viewModelScope
                     )
                     bridges[tabId] = bridge
+                    // 注入已注册的重绘回调（composable 可能早于 bridge 创建而注册）
+                    invalidateCallbacks[tabId]?.let { bridge.onInvalidate = it }
                     updateTab(tabId) {
                         copy(isConnecting = false, isConnected = true, isDisconnected = false, errorMessage = null)
                     }

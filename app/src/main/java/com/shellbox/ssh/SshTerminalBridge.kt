@@ -23,6 +23,13 @@ class SshTerminalBridge(
     private val onDisconnected: () -> Unit,
     private val scope: CoroutineScope
 ) {
+    /**
+     * 直接触发 View 重绘的回调，由外部注入 view.postInvalidate()。
+     * 在 SSH 数据到达、emulator 更新后立即从 IO 线程调用，
+     * 绕过 Compose 重组管线，确保键盘显示期间也能实时渲染。
+     * view.postInvalidate() 本身是线程安全的，可从任意线程调用。
+     */
+    var onInvalidate: (() -> Unit)? = null
     // Cell pixel size doesn't matter for SSH text terminals
     private val CELL_W = 10
     private val CELL_H = 20
@@ -89,6 +96,9 @@ class SshTerminalBridge(
                     synchronized(emulator) {
                         emulator.append(buffer, n)
                     }
+                    // 直接通知 View 重绘（IO 线程，view.postInvalidate() 线程安全）
+                    // 这条路径绕过 Compose 重组，确保键盘显示期间终端内容实时更新
+                    onInvalidate?.invoke()
                     withContext(Dispatchers.Main) { onTextChanged() }
                 }
             } catch (_: Exception) {}

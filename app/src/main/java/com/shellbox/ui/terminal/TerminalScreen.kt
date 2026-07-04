@@ -107,6 +107,17 @@ fun TerminalScreen(
         // 当 ime inset 为 0 时，虚拟键盘隐藏
         val imeVisible = WindowInsets.isImeVisible
 
+        // 注册直接重绘回调：SSH 数据到达时 bridge 从 IO 线程调用 view.postInvalidate()，
+        // 绕过 Compose 重组管线，解决键盘显示期间终端内容不实时更新的问题。
+        // adjustResize 让窗口随键盘自动缩小，无需 imePadding()。
+        val view = LocalView.current
+        val activeSessionId = uiState.activeTab?.sessionId
+        DisposableEffect(activeSessionId) {
+            val id = activeSessionId ?: return@DisposableEffect onDispose {}
+            viewModel.registerInvalidateCallback(id) { view.postInvalidate() }
+            onDispose { viewModel.unregisterInvalidateCallback(id) }
+        }
+
         // 外层 Box 用于叠放重连按钮等浮层
         Box(
             modifier = Modifier
@@ -116,11 +127,9 @@ fun TerminalScreen(
             val activeTab = uiState.activeTab
 
             // 主列：终端画面 + 虚拟键盘 + 隐藏输入框
-            // imePadding() 让整列从底部随系统键盘收缩，终端内容始终显示在键盘上方
+            // adjustResize 让系统键盘区域由窗口 resize 排除，Column 只需 fillMaxSize()
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .imePadding()
+                modifier = Modifier.fillMaxSize()
             ) {
                 // 终端画面：weight(1f) 占满虚拟键盘以上的全部剩余空间
                 Box(
@@ -221,7 +230,6 @@ fun TerminalScreen(
                     onClick = { viewModel.reconnect(uiState.activeTabIndex) },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .imePadding()
                         .padding(
                             end = 20.dp,
                             bottom = if (imeVisible && vkeyLayout.hasAnyKey) 8.dp else 24.dp
