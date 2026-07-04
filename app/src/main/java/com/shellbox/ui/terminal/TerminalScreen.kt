@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -104,29 +103,20 @@ fun TerminalScreen(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
-        val view = LocalView.current
-
-        // ── 键盘高度检测 ────────────────────────────────────────────────────────
-        // 用 ViewTreeObserver.OnGlobalLayoutListener 直接测量可见区域，
-        // 不依赖 WindowInsets.isImeVisible 或 adjustResize，
-        // 在所有 Android 版本、全面屏和非全面屏设备上均可靠工作。
-        var imeHeightPx by remember { mutableIntStateOf(0) }
-        DisposableEffect(view) {
-            val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
-                val rect = android.graphics.Rect()
-                view.getWindowVisibleDisplayFrame(rect)
-                val hidden = (view.rootView.height - rect.bottom).coerceAtLeast(0)
-                imeHeightPx = hidden
-            }
-            view.viewTreeObserver.addOnGlobalLayoutListener(listener)
-            onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
-        }
-        // 阈值 100dp：软键盘通常 ≥ 200dp，导航栏 ≤ 60dp
-        val imeDpThreshold = (view.resources.displayMetrics.density * 100).toInt()
-        val imeVisible = imeHeightPx > imeDpThreshold
         val density = LocalDensity.current
-        // 只有 imeVisible 时才施加偏移，避免导航栏高度干扰
-        val imeHeightDp = if (imeVisible) with(density) { imeHeightPx.toDp() } else 0.dp
+
+        // ── IME 高度和可见性 ────────────────────────────────────────────────────
+        // adjustNothing 下窗口不 resize，但系统照样把 IME insets 分发给 View 树。
+        // AndroidComposeView.onApplyWindowInsets 更新 LocalWindowInsets，触发重组。
+        // OnGlobalLayoutListener 在 adjustNothing 下不触发（无 layout 变化），不能用。
+        // WindowInsets.isImeVisible 直接从 LocalWindowInsets 读取，可靠且实时。
+        val imeVisible = WindowInsets.isImeVisible
+        // 只在 imeVisible 时取高度，避免导航栏残留 inset 被误计入
+        val imeHeightDp = if (imeVisible) {
+            with(density) { WindowInsets.ime.getBottom(density).toDp() }
+        } else {
+            0.dp
+        }
 
         // ── draw-phase 实时渲染修复 ─────────────────────────────────────────────
         // view.postInvalidate() 在 API 29+ 只重播 RenderNode 缓存，不重新执行 drawBehind。
