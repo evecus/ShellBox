@@ -87,10 +87,9 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
 /**
  * Compose Canvas-based VT100 terminal renderer.
  *
- * Reads directly from [TerminalEmulator.getScreen] on every recomposition
- * (triggered by [renderTick] changes from [TerminalViewModel]).
+ * Reads directly from [TerminalEmulator.getScreen] on every draw pass
+ * (triggered by [drawTickState] changes from [SshTerminalBridge.onInvalidate]).
  *
-/**
  * @param emulator        The TerminalEmulator instance from the active bridge
  * @param renderTick      Incremented by ViewModel when new data arrives; triggers recompose
  * @param drawTickState   Incremented by bridge's onInvalidate from IO thread; read inside
