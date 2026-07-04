@@ -90,8 +90,11 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
  * Reads directly from [TerminalEmulator.getScreen] on every recomposition
  * (triggered by [renderTick] changes from [TerminalViewModel]).
  *
+/**
  * @param emulator        The TerminalEmulator instance from the active bridge
  * @param renderTick      Incremented by ViewModel when new data arrives; triggers recompose
+ * @param drawTickState   Incremented by bridge's onInvalidate from IO thread; read inside
+ *                        Canvas draw lambda so Compose re-executes draw without recomposition
  * @param onResize        Callback with (cols, rows) when canvas size determines terminal dimensions
  * @param onRequestFocus  Called on tap so the hidden input field gets focus
  */
@@ -99,6 +102,7 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
 fun TerminalCanvas(
     emulator: TerminalEmulator,
     renderTick: Long,
+    drawTickState: androidx.compose.runtime.LongState,
     onResize: (cols: Int, rows: Int) -> Unit,
     onRequestFocus: () -> Unit,
     modifier: Modifier = Modifier,
@@ -151,7 +155,7 @@ fun TerminalCanvas(
     }
 
     @Suppress("UNUSED_EXPRESSION")
-    renderTick
+    renderTick  // 保留：触发 LaunchedEffect(renderTick) 里的 scrollback 重置
 
     Canvas(
         modifier = modifier
@@ -194,6 +198,14 @@ fun TerminalCanvas(
                 }
             }
     ) {
+        // ── 核心渲染修复 ────────────────────────────────────────────────────────
+        // 在 draw lambda 内读取 drawTickState.longValue：
+        // Compose 将其注册为 draw-phase 依赖（不是 composition 依赖）。
+        // 当 IO 线程写入 drawTickState.longValue++（来自 SshTerminalBridge.onInvalidate），
+        // Compose 只重新执行此 draw lambda，不触发重组，延迟约 1 个 vsync（≤16ms）。
+        // 这是在键盘显示期间实现实时渲染的正确方法。
+        @Suppress("UNUSED_EXPRESSION")
+        drawTickState.longValue
         val screen: TerminalBuffer = synchronized(emulator) { emulator.screen }
         val colors: TerminalColors = emulator.mColors
         val rows = emulator.mRows

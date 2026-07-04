@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -103,19 +104,40 @@ fun TerminalScreen(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
-        // 监听系统键盘显示状态，用 WindowInsets 判断
-        // imePadding() 让内容区随键盘收缩，虚拟键盘紧贴其上方
-        // 当 ime inset 为 0 时，虚拟键盘隐藏
-        val imeVisible = WindowInsets.isImeVisible
-
-        // 注册直接重绘回调：SSH 数据到达时 bridge 从 IO 线程调用 view.postInvalidate()，
-        // 绕过 Compose 重组管线，解决键盘显示期间终端内容不实时更新的问题。
-        // adjustResize 让窗口随键盘自动缩小，无需 imePadding()。
         val view = LocalView.current
+
+        // ── 键盘高度检测 ────────────────────────────────────────────────────────
+        // 用 ViewTreeObserver.OnGlobalLayoutListener 直接测量可见区域，
+        // 不依赖 WindowInsets.isImeVisible 或 adjustResize，
+        // 在所有 Android 版本、全面屏和非全面屏设备上均可靠工作。
+        var imeHeightPx by remember { mutableIntStateOf(0) }
+        DisposableEffect(view) {
+            val listener = android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                val rect = android.graphics.Rect()
+                view.getWindowVisibleDisplayFrame(rect)
+                val hidden = (view.rootView.height - rect.bottom).coerceAtLeast(0)
+                imeHeightPx = hidden
+            }
+            view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+            onDispose { view.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+        }
+        // 阈值 100dp：软键盘通常 ≥ 200dp，导航栏 ≤ 60dp
+        val imeDpThreshold = (view.resources.displayMetrics.density * 100).toInt()
+        val imeVisible = imeHeightPx > imeDpThreshold
+        val density = LocalDensity.current
+        // 只有 imeVisible 时才施加偏移，避免导航栏高度干扰
+        val imeHeightDp = if (imeVisible) with(density) { imeHeightPx.toDp() } else 0.dp
+
+        // ── draw-phase 实时渲染修复 ─────────────────────────────────────────────
+        // view.postInvalidate() 在 API 29+ 只重播 RenderNode 缓存，不重新执行 drawBehind。
+        // 正确做法：在 Canvas draw lambda 内读取一个 MutableState（drawTickState），
+        // Compose 将其注册为 draw-phase 依赖：当 IO 线程写入时，Compose 只重跑 draw
+        // lambda，不触发重组，延迟极低且线程安全。
+        val drawTickState = remember { mutableLongStateOf(0L) }
         val activeSessionId = uiState.activeTab?.sessionId
         DisposableEffect(activeSessionId) {
             val id = activeSessionId ?: return@DisposableEffect onDispose {}
-            viewModel.registerInvalidateCallback(id) { view.postInvalidate() }
+            viewModel.registerInvalidateCallback(id) { drawTickState.longValue++ }
             onDispose { viewModel.unregisterInvalidateCallback(id) }
         }
 
@@ -128,9 +150,11 @@ fun TerminalScreen(
             val activeTab = uiState.activeTab
 
             // 主列：终端画面 + 虚拟键盘 + 隐藏输入框
-            // adjustResize 让系统键盘区域由窗口 resize 排除，Column 只需 fillMaxSize()
+            // adjustNothing 窗口不 resize，用 padding(bottom=imeHeightDp) 把内容推到键盘上方
             Column(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = imeHeightDp)
             ) {
                 // 终端画面：weight(1f) 占满虚拟键盘以上的全部剩余空间
                 Box(
@@ -151,6 +175,7 @@ fun TerminalScreen(
                                 TerminalCanvas(
                                     emulator = bridge.emulator,
                                     renderTick = activeTab.renderTick,
+                                    drawTickState = drawTickState,
                                     onResize = { cols, rows -> viewModel.onTerminalResize(cols, rows) },
                                     onRequestFocus = {
                                         focusRequester.requestFocus()
