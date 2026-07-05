@@ -17,7 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -37,11 +36,10 @@ import com.termux.terminal.TerminalRow
 import com.termux.terminal.TextStyle
 import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.min
 import kotlinx.coroutines.withTimeoutOrNull
 
 // ---------------------------------------------------------------------------
-// Xterm 256-color palette (indexed 0-255)
+// Xterm 256-color palette
 // ---------------------------------------------------------------------------
 private val XTERM_COLORS: IntArray by lazy {
     IntArray(256).apply {
@@ -74,13 +72,21 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
     else indexedColor(encodedColor, colors)
 
 // ---------------------------------------------------------------------------
-// Text selection model
+// Text selection
+//
+// 坐标系说明（与 TerminalBuffer.externalToInternalRow / getSelectedText 一致）：
+//   row  0            = 当前屏幕首行
+//   row  mScreenRows-1 = 当前屏幕末行
+//   row  -N           = 滚动历史第 N 行（上方）
+//   externalRow = visRow - effectiveScroll
+//     其中 visRow = 0..rows-1（画布从上到下的可见行号）
+//
+// TerminalSelection 存储的行号与 getSelectedText 完全相同，直接传入即可。
 // ---------------------------------------------------------------------------
 private data class TerminalSelection(
     val startRow: Int, val startCol: Int,
     val endRow:   Int, val endCol:   Int
 ) {
-    /** Returns a copy where (startRow,startCol) ≤ (endRow,endCol). */
     fun normalized(): TerminalSelection =
         if (startRow < endRow || (startRow == endRow && startCol <= endCol)) this
         else TerminalSelection(endRow, endCol, startRow, startCol)
@@ -88,10 +94,6 @@ private data class TerminalSelection(
 
 /**
  * Compose Canvas-based VT100 terminal renderer with text-selection support.
- *
- * Rendering is driven by [drawTickState]: when [SshTerminalBridge.onInvalidate]
- * increments it from the IO thread, Compose re-executes only the draw lambda
- * (draw-phase dependency) without recomposition — latency ≤ 1 vsync (≤ 16 ms).
  */
 @Composable
 fun TerminalCanvas(
@@ -125,9 +127,8 @@ fun TerminalCanvas(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         ) / 62f
     }
-    val cellH = remember(fontSizePx, typeface) {
-        val fm = textPaint.fontMetrics
-        (fm.descent - fm.ascent) * 1.05f
+    val cellH    = remember(fontSizePx, typeface) {
+        val fm = textPaint.fontMetrics; (fm.descent - fm.ascent) * 1.05f
     }
     val baseline = remember(fontSizePx, typeface) { -textPaint.fontMetrics.ascent }
 
@@ -137,74 +138,56 @@ fun TerminalCanvas(
     // ── 文字选择状态 ─────────────────────────────────────────────────────────
     var selection by remember { mutableStateOf<TerminalSelection?>(null) }
 
-    // 当前 startLine（buffer 中可见首行的绝对行号），读取 scrollRows 使其随滚动自动重算
-    val currentStartLine: Int = run {
-        val total = try {
-            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
-                .also { it.isAccessible = true }
-            synchronized(emulator) { f.getInt(emulator.screen) }
-        } catch (_: Exception) { emulator.mRows }
-        val maxScroll = (total - emulator.mRows).coerceAtLeast(0)
-        (total - emulator.mRows - scrollRows.coerceIn(0, maxScroll)).coerceAtLeast(0)
-    }
-
-    // 手势 lambda 中实时获取 startLine（不依赖快照，每次调用反映最新 scrollRows）
-    val getStartLine: () -> Int = {
-        try {
-            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
-                .also { it.isAccessible = true }
-            val total = synchronized(emulator) { f.getInt(emulator.screen) }
-            val maxScroll = (total - emulator.mRows).coerceAtLeast(0)
-            (total - emulator.mRows - scrollRows.coerceIn(0, maxScroll)).coerceAtLeast(0)
-        } catch (_: Exception) { 0 }
-    }
-
     LaunchedEffect(renderTick) { if (scrollRows == 0) dragAccumPx = 0f }
 
     @Suppress("UNUSED_EXPRESSION")
     renderTick
 
-    // 手柄圆半径 & 触控有效半径
     val handleRadius      = cellH * 0.42f
     val handleTouchRadius = cellH * 1.5f
 
-    // 像素坐标 → (bufferRow, col)
+    // ── 坐标转换 ──────────────────────────────────────────────────────────────
+    // 像素 → (externalRow, col)
+    // externalRow = visRow - effectiveScroll（与 getSelectedText 坐标一致）
     fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
         val col    = (x / cellW.coerceAtLeast(1f)).toInt().coerceIn(0, emulator.mColumns - 1)
         val visRow = (y / cellH.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
-        return (getStartLine() + visRow) to col
+        // externalRow = visRow - effectiveScroll，effectiveScroll 此处用 scrollRows 近似
+        return (visRow - scrollRows) to col
     }
 
-    // 起始手柄像素位置（选区首字符底部左侧）
+    // externalRow → 画布像素 Y（底部，供手柄绘制用）
+    // visRow = externalRow + scrollRows
+    fun extRowBottomY(extRow: Int): Float = (extRow + scrollRows + 1) * cellH
+
+    // 起始手柄中心（像素，供触控检测用）
     fun startHandleCenter(sel: TerminalSelection): Offset {
         val n = sel.normalized()
-        return Offset(n.startCol * cellW, (n.startRow - currentStartLine + 1) * cellH)
+        return Offset(n.startCol * cellW, extRowBottomY(n.startRow))
     }
 
-    // 结束手柄像素位置（选区末字符底部右侧）
+    // 结束手柄中心（像素，供触控检测用）
     fun endHandleCenter(sel: TerminalSelection): Offset {
         val n = sel.normalized()
-        return Offset((n.endCol + 1) * cellW, (n.endRow - currentStartLine + 1) * cellH)
+        return Offset((n.endCol + 1) * cellW, extRowBottomY(n.endRow))
     }
 
     Box(modifier = modifier) {
 
-        // ── 终端画布 ────────────────────────────────────────────────────────
+        // ── 终端画布 ──────────────────────────────────────────────────────────
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-                // 手势：有选择时拖动手柄或点击取消；无选择时长按开始选择，单击呼出键盘
                 .pointerInput(selection, cellW, cellH) {
                     if (selection == null) {
                         detectTapGestures(
                             onTap = { onRequestFocus() },
                             onLongPress = { offset ->
-                                val (bufRow, col) = pixelToCell(offset.x, offset.y)
-                                // 初始选 1 字符，用户可拖动手柄扩展
+                                val (extRow, col) = pixelToCell(offset.x, offset.y)
                                 selection = TerminalSelection(
-                                    startRow = bufRow, startCol = col,
-                                    endRow   = bufRow,
+                                    startRow = extRow, startCol = col,
+                                    endRow   = extRow,
                                     endCol   = (col + 1).coerceAtMost(emulator.mColumns - 1)
                                 )
                             }
@@ -219,7 +202,6 @@ fun TerminalCanvas(
                             val endPos   = endHandleCenter(sel)
 
                             when {
-                                // 拖动起始手柄
                                 (pos - startPos).getDistance() < handleTouchRadius -> {
                                     drag(down.id) { change ->
                                         val (row, col) = pixelToCell(change.position.x, change.position.y)
@@ -228,7 +210,6 @@ fun TerminalCanvas(
                                         change.consume()
                                     }
                                 }
-                                // 拖动结束手柄
                                 (pos - endPos).getDistance() < handleTouchRadius -> {
                                     drag(down.id) { change ->
                                         val (row, col) = pixelToCell(change.position.x, change.position.y)
@@ -237,7 +218,6 @@ fun TerminalCanvas(
                                         change.consume()
                                     }
                                 }
-                                // 点击空白处取消选择
                                 else -> {
                                     val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                                         waitForUpOrCancellation()
@@ -248,7 +228,6 @@ fun TerminalCanvas(
                         }
                     }
                 }
-                // 滚动（独立 pointerInput，与选择手势并行，互不干扰）
                 .pointerInput(cellH) {
                     detectVerticalDragGestures(
                         onDragStart  = { dragAccumPx = 0f },
@@ -279,7 +258,6 @@ fun TerminalCanvas(
                     }
                 }
         ) {
-            // draw-phase 依赖：IO 线程写 drawTickState → Compose 仅重跑 draw lambda
             @Suppress("UNUSED_EXPRESSION")
             drawTickState.longValue
 
@@ -295,9 +273,9 @@ fun TerminalCanvas(
                     .also { it.isAccessible = true }
                 f.getInt(screen)
             } catch (_: Exception) { rows }
-            val maxScroll     = (totalLines - rows).coerceAtLeast(0)
+
+            val maxScroll       = (totalLines - rows).coerceAtLeast(0)
             val effectiveScroll = scrollRows.coerceIn(0, maxScroll)
-            val startLine     = (totalLines - rows - effectiveScroll).coerceAtLeast(0)
 
             val mLinesField = TerminalBuffer::class.java.getDeclaredField("mLines")
                 .also { it.isAccessible = true }
@@ -319,9 +297,10 @@ fun TerminalCanvas(
 
             // ── 渲染终端行 ────────────────────────────────────────────────
             for (row in 0 until rows) {
-                val bufferRow = row - effectiveScroll
+                // externalRow：与 getSelectedText 坐标系一致（0 = 屏幕首行，负 = 滚动历史）
+                val externalRow = row - effectiveScroll
                 val line: TerminalRow = try {
-                    mLines[screen.externalToInternalRow(bufferRow)] ?: continue
+                    mLines[screen.externalToInternalRow(externalRow)] ?: continue
                 } catch (_: Exception) { continue }
 
                 val showCursor = effectiveScroll == 0 && row == cursorRow
@@ -344,7 +323,7 @@ fun TerminalCanvas(
                         if (col < mStyle.size) mStyle[col] else defaultStyle
                     } catch (_: Exception) { defaultStyle }
 
-                    val effect     = TextStyle.decodeEffect(style)
+                    val effect      = TextStyle.decodeEffect(style)
                     val isBold      = (effect and TextStyle.CHARACTER_ATTRIBUTE_BOLD) != 0
                     val isUnderline = (effect and TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0
                     val isInverse   = (effect and TextStyle.CHARACTER_ATTRIBUTE_INVERSE) != 0
@@ -355,7 +334,7 @@ fun TerminalCanvas(
                     if (fgIdx == TextStyle.COLOR_INDEX_FOREGROUND) fgIdx = 0
                     if (bgIdx == TextStyle.COLOR_INDEX_BACKGROUND) bgIdx = 15
 
-                    var fg = resolveColor(fgIdx, true, colors)
+                    var fg = resolveColor(fgIdx, true,  colors)
                     var bg = resolveColor(bgIdx, false, colors)
                     if (fgIdx == 0)  fg = 0xFF000000.toInt()
                     if (bgIdx == 15) bg = 0xFFFFFFFF.toInt()
@@ -364,11 +343,11 @@ fun TerminalCanvas(
                     val isCursor = showCursor && col == cursorCol
                     if (isCursor)  { val t = fg; fg = bg; bg = t }
 
-                    val charWidth  = com.termux.terminal.WcWidth.width(codePoint)
-                    val widthCols  = if (charWidth > 0) charWidth else 1
-                    val cellSpanW  = cellW * widthCols
-                    val cellX      = col  * cellW
-                    val cellY      = row  * cellH
+                    val charWidth = com.termux.terminal.WcWidth.width(codePoint)
+                    val widthCols = if (charWidth > 0) charWidth else 1
+                    val cellSpanW = cellW * widthCols
+                    val cellX     = col * cellW
+                    val cellY     = row * cellH
 
                     if (bg != 0xFFFFFFFF.toInt() || isCursor) {
                         drawRect(
@@ -380,7 +359,7 @@ fun TerminalCanvas(
 
                     if (!isInvisible && codePoint != ' '.code && codePoint != 0) {
                         drawIntoCanvas { canvas ->
-                            textPaint.color         = fg
+                            textPaint.color           = fg
                             textPaint.isFakeBoldText  = isBold
                             textPaint.isUnderlineText = isUnderline
                             val str = String(Character.toChars(codePoint))
@@ -405,16 +384,18 @@ fun TerminalCanvas(
             // ── 文字选择：高亮 + 手柄 ────────────────────────────────────
             val sel = selection?.normalized()
             if (sel != null) {
-                val selHighlight  = Color(0x550099FF)
-                val handleColor   = Color(0xFF1A73E8)
-                val handleStroke  = 2.5f
+                val selHighlight = Color(0x550099FF)
+                val handleColor  = Color(0xFF1A73E8)
+                val strokeW      = 2.5f
 
                 // 选中区域高亮
-                for (row in sel.startRow..sel.endRow) {
-                    val visRow  = row - startLine
+                // sel.startRow / endRow 是 externalRow（与 getSelectedText 坐标一致）
+                // visRow = externalRow + effectiveScroll
+                for (extRow in sel.startRow..sel.endRow) {
+                    val visRow  = extRow + effectiveScroll
                     if (visRow < 0 || visRow >= rows) continue
-                    val fromCol = if (row == sel.startRow) sel.startCol else 0
-                    val toCol   = if (row == sel.endRow)   sel.endCol   else cols - 1
+                    val fromCol = if (extRow == sel.startRow) sel.startCol else 0
+                    val toCol   = if (extRow == sel.endRow)   sel.endCol   else cols - 1
                     if (fromCol > toCol) continue
                     drawRect(
                         color    = selHighlight,
@@ -423,31 +404,31 @@ fun TerminalCanvas(
                     )
                 }
 
-                // 起始手柄（选区左上角的垂直线 + 圆）
-                val sv = sel.startRow - startLine
-                if (sv in -1..rows) {
+                // 起始手柄
+                val svVis = sel.startRow + effectiveScroll
+                if (svVis in -1..rows) {
                     val hx = sel.startCol * cellW
-                    val hy = (sv + 1) * cellH
-                    drawLine(handleColor, Offset(hx, sv.coerceAtLeast(0) * cellH), Offset(hx, hy), handleStroke)
+                    val hy = (svVis + 1) * cellH
+                    drawLine(handleColor, Offset(hx, svVis.coerceAtLeast(0) * cellH), Offset(hx, hy), strokeW)
                     drawCircle(handleColor, handleRadius, Offset(hx, hy))
                 }
 
-                // 结束手柄（选区右下角的垂直线 + 圆）
-                val ev = sel.endRow - startLine
-                if (ev in -1..rows) {
+                // 结束手柄
+                val evVis = sel.endRow + effectiveScroll
+                if (evVis in -1..rows) {
                     val hx = (sel.endCol + 1) * cellW
-                    val hy = (ev + 1) * cellH
-                    drawLine(handleColor, Offset(hx, ev.coerceAtLeast(0) * cellH), Offset(hx, hy), handleStroke)
+                    val hy = (evVis + 1) * cellH
+                    drawLine(handleColor, Offset(hx, evVis.coerceAtLeast(0) * cellH), Offset(hx, hy), strokeW)
                     drawCircle(handleColor, handleRadius, Offset(hx, hy))
                 }
             }
         } // end Canvas
 
-        // ── 复制弹窗（叠加层） ───────────────────────────────────────────
+        // ── 复制弹窗 ─────────────────────────────────────────────────────────
         val sel = selection?.normalized()
         if (sel != null) {
-            val visStartRow = (sel.startRow - currentStartLine).coerceAtLeast(0)
-            // 弹窗水平居中于选区，垂直在选区起始行上方
+            // visRow = externalRow + scrollRows（composable 作用域用 scrollRows 代替 effectiveScroll）
+            val visStartRow = (sel.startRow + scrollRows).coerceAtLeast(0)
             val centerXPx   = ((sel.startCol + sel.endCol + 1) * cellW / 2).toInt()
             val popupTopPx  = (visStartRow * cellH - 96f).toInt().coerceAtLeast(4)
 
@@ -460,15 +441,15 @@ fun TerminalCanvas(
                 }
             ) {
                 Surface(
-                    shape          = RoundedCornerShape(8.dp),
-                    color          = Color(0xFF212121),
+                    shape           = RoundedCornerShape(8.dp),
+                    color           = Color(0xFF212121),
                     shadowElevation = 8.dp,
                     tonalElevation  = 0.dp
                 ) {
                     IconButton(
                         onClick = {
-                            // 复制选中文字到剪贴板
                             try {
+                                // sel.startRow/endRow 与 getSelectedText 坐标系一致，直接传入
                                 val text = synchronized(emulator) {
                                     emulator.screen.getSelectedText(
                                         sel.startCol, sel.startRow,
@@ -481,16 +462,16 @@ fun TerminalCanvas(
                                 cm.setPrimaryClip(
                                     android.content.ClipData.newPlainText("terminal", text)
                                 )
-                            } catch (_: Exception) { /* 忽略剪贴板错误 */ }
+                            } catch (_: Exception) { }
                             selection = null
                         },
                         modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
-                            imageVector  = Icons.Outlined.ContentCopy,
+                            imageVector        = Icons.Outlined.ContentCopy,
                             contentDescription = "复制",
-                            tint         = Color.White,
-                            modifier     = Modifier.size(20.dp)
+                            tint               = Color.White,
+                            modifier           = Modifier.size(20.dp)
                         )
                     }
                 }
