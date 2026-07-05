@@ -430,7 +430,7 @@ fun TerminalCanvas(
             // visRow = externalRow + scrollRows（composable 作用域用 scrollRows 代替 effectiveScroll）
             val visStartRow = (sel.startRow + scrollRows).coerceAtLeast(0)
             val centerXPx   = ((sel.startCol + sel.endCol + 1) * cellW / 2).toInt()
-            val popupTopPx  = (visStartRow * cellH - 96f).toInt().coerceAtLeast(4)
+            val popupTopPx  = (visStartRow * cellH - 180f).toInt().coerceAtLeast(4)
 
             Box(
                 modifier = Modifier.offset {
