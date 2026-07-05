@@ -3,10 +3,21 @@ package com.shellbox.ui.terminal
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -16,6 +27,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.terminal.TerminalBuffer
@@ -26,76 +38,60 @@ import com.termux.terminal.TextStyle
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.withTimeoutOrNull
 
 // ---------------------------------------------------------------------------
 // Xterm 256-color palette (indexed 0-255)
 // ---------------------------------------------------------------------------
 private val XTERM_COLORS: IntArray by lazy {
     IntArray(256).apply {
-        // 0-7: standard colors
-        this[0] = 0xFF1C1C1C.toInt()  // black
-        this[1] = 0xFFCC0000.toInt()  // red
-        this[2] = 0xFF4E9A06.toInt()  // green
-        this[3] = 0xFFC4A000.toInt()  // yellow
-        this[4] = 0xFF3465A4.toInt()  // blue
-        this[5] = 0xFF75507B.toInt()  // magenta
-        this[6] = 0xFF06989A.toInt()  // cyan
-        this[7] = 0xFFD3D7CF.toInt()  // white
-        // 8-15: bright colors
-        this[8]  = 0xFF555753.toInt()
-        this[9]  = 0xFFEF2929.toInt()
-        this[10] = 0xFF8AE234.toInt()
-        this[11] = 0xFFFCE94F.toInt()
-        this[12] = 0xFF729FCF.toInt()
-        this[13] = 0xFFAD7FA8.toInt()
-        this[14] = 0xFF34E2E2.toInt()
-        this[15] = 0xFFEEEEEC.toInt()
-        // 16-231: 6×6×6 color cube
+        this[0] = 0xFF1C1C1C.toInt(); this[1] = 0xFFCC0000.toInt()
+        this[2] = 0xFF4E9A06.toInt(); this[3] = 0xFFC4A000.toInt()
+        this[4] = 0xFF3465A4.toInt(); this[5] = 0xFF75507B.toInt()
+        this[6] = 0xFF06989A.toInt(); this[7] = 0xFFD3D7CF.toInt()
+        this[8]  = 0xFF555753.toInt(); this[9]  = 0xFFEF2929.toInt()
+        this[10] = 0xFF8AE234.toInt(); this[11] = 0xFFFCE94F.toInt()
+        this[12] = 0xFF729FCF.toInt(); this[13] = 0xFFAD7FA8.toInt()
+        this[14] = 0xFF34E2E2.toInt(); this[15] = 0xFFEEEEEC.toInt()
         for (i in 16..231) {
-            val idx = i - 16
-            val b = idx % 6
-            val g = (idx / 6) % 6
-            val r = idx / 36
+            val idx = i - 16; val b = idx % 6; val g = (idx / 6) % 6; val r = idx / 36
             fun v(x: Int) = if (x == 0) 0 else 55 + x * 40
             this[i] = (0xFF shl 24) or (v(r) shl 16) or (v(g) shl 8) or v(b)
         }
-        // 232-255: grayscale
         for (i in 232..255) {
             val c = 8 + (i - 232) * 10
             this[i] = (0xFF shl 24) or (c shl 16) or (c shl 8) or c
         }
-        // Override 256=default fg, 257=default bg, 258=cursor
-        // (TerminalColors uses indices 256+ for special colors)
     }
 }
 
-private fun indexedColor(index: Int, colors: TerminalColors): Int {
-    return if (index < 256) XTERM_COLORS[index]
+private fun indexedColor(index: Int, colors: TerminalColors): Int =
+    if (index < 256) XTERM_COLORS[index]
     else colors.mCurrentColors.getOrNull(index) ?: 0xFF000000.toInt()
-}
 
-private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColors): Int {
-    return if ((encodedColor and 0xff000000.toInt()) == 0xff000000.toInt()) {
-        // Truecolor — already packed as 0xFFRRGGBB
-        encodedColor
-    } else {
-        // Indexed color
-        indexedColor(encodedColor, colors)
-    }
+private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColors): Int =
+    if ((encodedColor and 0xff000000.toInt()) == 0xff000000.toInt()) encodedColor
+    else indexedColor(encodedColor, colors)
+
+// ---------------------------------------------------------------------------
+// Text selection model
+// ---------------------------------------------------------------------------
+private data class TerminalSelection(
+    val startRow: Int, val startCol: Int,
+    val endRow:   Int, val endCol:   Int
+) {
+    /** Returns a copy where (startRow,startCol) ≤ (endRow,endCol). */
+    fun normalized(): TerminalSelection =
+        if (startRow < endRow || (startRow == endRow && startCol <= endCol)) this
+        else TerminalSelection(endRow, endCol, startRow, startCol)
 }
 
 /**
- * Compose Canvas-based VT100 terminal renderer.
+ * Compose Canvas-based VT100 terminal renderer with text-selection support.
  *
- * Reads directly from [TerminalEmulator.getScreen] on every draw pass
- * (triggered by [drawTickState] changes from [SshTerminalBridge.onInvalidate]).
- *
- * @param emulator        The TerminalEmulator instance from the active bridge
- * @param renderTick      Incremented by ViewModel when new data arrives; triggers recompose
- * @param drawTickState   Incremented by bridge's onInvalidate from IO thread; read inside
- *                        Canvas draw lambda so Compose re-executes draw without recomposition
- * @param onResize        Callback with (cols, rows) when canvas size determines terminal dimensions
- * @param onRequestFocus  Called on tap so the hidden input field gets focus
+ * Rendering is driven by [drawTickState]: when [SshTerminalBridge.onInvalidate]
+ * increments it from the IO thread, Compose re-executes only the draw lambda
+ * (draw-phase dependency) without recomposition — latency ≤ 1 vsync (≤ 16 ms).
  */
 @Composable
 fun TerminalCanvas(
@@ -111,253 +107,409 @@ fun TerminalCanvas(
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Font size in sp → px
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
-    val typeface = remember(terminalFont) { TerminalTypefaceCache.resolve(context, terminalFont) }
+    val typeface    = remember(terminalFont) { TerminalTypefaceCache.resolve(context, terminalFont) }
 
     val textPaint = remember(typeface, fontSizePx) {
         android.graphics.Paint().apply {
-            this.typeface = typeface
-            textSize = fontSizePx
-            isAntiAlias = true
+            this.typeface  = typeface
+            textSize       = fontSizePx
+            isAntiAlias    = true
             isSubpixelText = false
-            letterSpacing = 0f
+            letterSpacing  = 0f
         }
     }
 
     val cellW = remember(fontSizePx, typeface) {
-        val measured = textPaint.measureText("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") / 62f
-        measured
+        textPaint.measureText(
+            "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        ) / 62f
     }
     val cellH = remember(fontSizePx, typeface) {
         val fm = textPaint.fontMetrics
         (fm.descent - fm.ascent) * 1.05f
     }
-    val baseline = remember(fontSizePx, typeface) {
-        -textPaint.fontMetrics.ascent
-    }
+    val baseline = remember(fontSizePx, typeface) { -textPaint.fontMetrics.ascent }
 
-    // 光标固定显示，不闪烁
-    val cursorVisible = true
-
-    // scrollback 偏移：0 = 最底部（正常视图），正数 = 向上滚动的行数
-    var scrollRows by remember { mutableIntStateOf(0) }
-    // 累计像素拖动量（用于亚行精度滚动）
+    var scrollRows  by remember { mutableIntStateOf(0) }
     var dragAccumPx by remember { mutableFloatStateOf(0f) }
 
-    // 新数据到来时，只有用户在底部（未手动上翻）才自动保持底部
-    // 如果用户正在查看历史，不强制跳回底部
-    LaunchedEffect(renderTick) {
-        if (scrollRows == 0) {
-            dragAccumPx = 0f
-        }
+    // ── 文字选择状态 ─────────────────────────────────────────────────────────
+    var selection by remember { mutableStateOf<TerminalSelection?>(null) }
+
+    // 当前 startLine（buffer 中可见首行的绝对行号），读取 scrollRows 使其随滚动自动重算
+    val currentStartLine: Int = run {
+        val total = try {
+            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                .also { it.isAccessible = true }
+            synchronized(emulator) { f.getInt(emulator.screen) }
+        } catch (_: Exception) { emulator.mRows }
+        val maxScroll = (total - emulator.mRows).coerceAtLeast(0)
+        (total - emulator.mRows - scrollRows.coerceIn(0, maxScroll)).coerceAtLeast(0)
     }
 
-    @Suppress("UNUSED_EXPRESSION")
-    renderTick  // 保留：触发 LaunchedEffect(renderTick) 里的 scrollback 重置
+    // 手势 lambda 中实时获取 startLine（不依赖快照，每次调用反映最新 scrollRows）
+    val getStartLine: () -> Int = {
+        try {
+            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                .also { it.isAccessible = true }
+            val total = synchronized(emulator) { f.getInt(emulator.screen) }
+            val maxScroll = (total - emulator.mRows).coerceAtLeast(0)
+            (total - emulator.mRows - scrollRows.coerceIn(0, maxScroll)).coerceAtLeast(0)
+        } catch (_: Exception) { 0 }
+    }
 
-    Canvas(
-        modifier = modifier
-            .background(Color.White)
-            .pointerInput(Unit) {
-                detectTapGestures { onRequestFocus() }
-            }
-            .pointerInput(cellH) {
-                detectVerticalDragGestures(
-                    onDragStart = { dragAccumPx = 0f },
-                    onDragEnd = { dragAccumPx = 0f },
-                    onDragCancel = { dragAccumPx = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        // 自然滚动（与手机系统一致）：
-                        // dragAmount > 0 = 手指向下滑 = 内容随手指向下移动 = 显示更早的历史 = scrollRows 增加
-                        // dragAmount < 0 = 手指向上滑 = 内容随手指向上移动 = 显示更新的内容 = scrollRows 减少
-                        dragAccumPx += dragAmount
-                        val rowsDelta = (dragAccumPx / cellH).toInt()
-                        if (rowsDelta != 0) {
-                            dragAccumPx -= rowsDelta * cellH
-                            val screen = synchronized(emulator) { emulator.screen }
-                            val totalLines = try {
-                                val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
-                                f.isAccessible = true
-                                f.getInt(screen)
-                            } catch (_: Exception) { emulator.mRows }
-                            val maxScroll = (totalLines - emulator.mRows).coerceAtLeast(0)
-                            // rowsDelta > 0（手指下滑）→ scrollRows 增加（查看历史内容）
-                            // rowsDelta < 0（手指上滑）→ scrollRows 减少（回到最新内容）
-                            scrollRows = (scrollRows + rowsDelta).coerceIn(0, maxScroll)
+    LaunchedEffect(renderTick) { if (scrollRows == 0) dragAccumPx = 0f }
+
+    @Suppress("UNUSED_EXPRESSION")
+    renderTick
+
+    // 手柄圆半径 & 触控有效半径
+    val handleRadius      = cellH * 0.42f
+    val handleTouchRadius = cellH * 1.5f
+
+    // 像素坐标 → (bufferRow, col)
+    fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
+        val col    = (x / cellW.coerceAtLeast(1f)).toInt().coerceIn(0, emulator.mColumns - 1)
+        val visRow = (y / cellH.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
+        return (getStartLine() + visRow) to col
+    }
+
+    // 起始手柄像素位置（选区首字符底部左侧）
+    fun startHandleCenter(sel: TerminalSelection): Offset {
+        val n = sel.normalized()
+        return Offset(n.startCol * cellW, (n.startRow - currentStartLine + 1) * cellH)
+    }
+
+    // 结束手柄像素位置（选区末字符底部右侧）
+    fun endHandleCenter(sel: TerminalSelection): Offset {
+        val n = sel.normalized()
+        return Offset((n.endCol + 1) * cellW, (n.endRow - currentStartLine + 1) * cellH)
+    }
+
+    Box(modifier = modifier) {
+
+        // ── 终端画布 ────────────────────────────────────────────────────────
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                // 手势：有选择时拖动手柄或点击取消；无选择时长按开始选择，单击呼出键盘
+                .pointerInput(selection, cellW, cellH) {
+                    if (selection == null) {
+                        detectTapGestures(
+                            onTap = { onRequestFocus() },
+                            onLongPress = { offset ->
+                                val (bufRow, col) = pixelToCell(offset.x, offset.y)
+                                // 初始选 1 字符，用户可拖动手柄扩展
+                                selection = TerminalSelection(
+                                    startRow = bufRow, startCol = col,
+                                    endRow   = bufRow,
+                                    endCol   = (col + 1).coerceAtMost(emulator.mColumns - 1)
+                                )
+                            }
+                        )
+                    } else {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val pos  = down.position
+                            val sel  = selection ?: return@awaitEachGesture
+
+                            val startPos = startHandleCenter(sel)
+                            val endPos   = endHandleCenter(sel)
+
+                            when {
+                                // 拖动起始手柄
+                                (pos - startPos).getDistance() < handleTouchRadius -> {
+                                    drag(down.id) { change ->
+                                        val (row, col) = pixelToCell(change.position.x, change.position.y)
+                                        selection = (selection ?: return@drag).normalized()
+                                            .copy(startRow = row, startCol = col)
+                                        change.consume()
+                                    }
+                                }
+                                // 拖动结束手柄
+                                (pos - endPos).getDistance() < handleTouchRadius -> {
+                                    drag(down.id) { change ->
+                                        val (row, col) = pixelToCell(change.position.x, change.position.y)
+                                        selection = (selection ?: return@drag).normalized()
+                                            .copy(endRow = row, endCol = col)
+                                        change.consume()
+                                    }
+                                }
+                                // 点击空白处取消选择
+                                else -> {
+                                    val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        waitForUpOrCancellation()
+                                    }
+                                    if (up != null) selection = null
+                                }
+                            }
                         }
                     }
-                )
-            }
-            .onSizeChanged { size ->
-                if (cellW > 0f && cellH > 0f) {
-                    val cols = max(1, floor(size.width / cellW).toInt())
-                    val rows = max(1, floor(size.height / cellH).toInt())
-                    onResize(cols, rows)
+                }
+                // 滚动（独立 pointerInput，与选择手势并行，互不干扰）
+                .pointerInput(cellH) {
+                    detectVerticalDragGestures(
+                        onDragStart  = { dragAccumPx = 0f },
+                        onDragEnd    = { dragAccumPx = 0f },
+                        onDragCancel = { dragAccumPx = 0f },
+                        onVerticalDrag = { _, dragAmount ->
+                            dragAccumPx += dragAmount
+                            val rowsDelta = (dragAccumPx / cellH).toInt()
+                            if (rowsDelta != 0) {
+                                dragAccumPx -= rowsDelta * cellH
+                                val screen = synchronized(emulator) { emulator.screen }
+                                val totalLines = try {
+                                    val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                                        .also { it.isAccessible = true }
+                                    f.getInt(screen)
+                                } catch (_: Exception) { emulator.mRows }
+                                val maxScroll = (totalLines - emulator.mRows).coerceAtLeast(0)
+                                scrollRows = (scrollRows + rowsDelta).coerceIn(0, maxScroll)
+                            }
+                        }
+                    )
+                }
+                .onSizeChanged { size ->
+                    if (cellW > 0f && cellH > 0f) {
+                        val cols = max(1, floor(size.width  / cellW).toInt())
+                        val rows = max(1, floor(size.height / cellH).toInt())
+                        onResize(cols, rows)
+                    }
+                }
+        ) {
+            // draw-phase 依赖：IO 线程写 drawTickState → Compose 仅重跑 draw lambda
+            @Suppress("UNUSED_EXPRESSION")
+            drawTickState.longValue
+
+            val screen: TerminalBuffer = synchronized(emulator) { emulator.screen }
+            val colors    = emulator.mColors
+            val rows      = emulator.mRows
+            val cols      = emulator.mColumns
+            val cursorRow = emulator.cursorRow
+            val cursorCol = emulator.cursorCol
+
+            val totalLines = try {
+                val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                    .also { it.isAccessible = true }
+                f.getInt(screen)
+            } catch (_: Exception) { rows }
+            val maxScroll     = (totalLines - rows).coerceAtLeast(0)
+            val effectiveScroll = scrollRows.coerceIn(0, maxScroll)
+            val startLine     = (totalLines - rows - effectiveScroll).coerceAtLeast(0)
+
+            val mLinesField = TerminalBuffer::class.java.getDeclaredField("mLines")
+                .also { it.isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val mLines = mLinesField.get(screen) as Array<TerminalRow?>
+
+            val mStyleField = TerminalRow::class.java.getDeclaredField("mStyle")
+                .also { it.isAccessible = true }
+
+            val defaultStyle: Long = try {
+                val m = TextStyle::class.java.getDeclaredMethod(
+                    "encode",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType
+                ).also { it.isAccessible = true }
+                m.invoke(null, 0, 15, 0) as Long
+            } catch (_: Exception) { 0L }
+
+            // ── 渲染终端行 ────────────────────────────────────────────────
+            for (row in 0 until rows) {
+                val bufferRow = row - effectiveScroll
+                val line: TerminalRow = try {
+                    mLines[screen.externalToInternalRow(bufferRow)] ?: continue
+                } catch (_: Exception) { continue }
+
+                val showCursor = effectiveScroll == 0 && row == cursorRow
+
+                var charIndex = 0
+                var col = 0
+                while (col < cols && charIndex < line.spaceUsed) {
+                    val c = line.mText[charIndex]
+                    val codePoint: Int
+                    if (c.isHighSurrogate() && charIndex + 1 < line.spaceUsed) {
+                        codePoint = Character.toCodePoint(c, line.mText[charIndex + 1])
+                        charIndex += 2
+                    } else {
+                        codePoint = c.code
+                        charIndex++
+                    }
+
+                    val style: Long = try {
+                        val mStyle = mStyleField.get(line) as LongArray
+                        if (col < mStyle.size) mStyle[col] else defaultStyle
+                    } catch (_: Exception) { defaultStyle }
+
+                    val effect     = TextStyle.decodeEffect(style)
+                    val isBold      = (effect and TextStyle.CHARACTER_ATTRIBUTE_BOLD) != 0
+                    val isUnderline = (effect and TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0
+                    val isInverse   = (effect and TextStyle.CHARACTER_ATTRIBUTE_INVERSE) != 0
+                    val isInvisible = (effect and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) != 0
+
+                    var fgIdx = TextStyle.decodeForeColor(style)
+                    var bgIdx = TextStyle.decodeBackColor(style)
+                    if (fgIdx == TextStyle.COLOR_INDEX_FOREGROUND) fgIdx = 0
+                    if (bgIdx == TextStyle.COLOR_INDEX_BACKGROUND) bgIdx = 15
+
+                    var fg = resolveColor(fgIdx, true, colors)
+                    var bg = resolveColor(bgIdx, false, colors)
+                    if (fgIdx == 0)  fg = 0xFF000000.toInt()
+                    if (bgIdx == 15) bg = 0xFFFFFFFF.toInt()
+
+                    if (isInverse) { val t = fg; fg = bg; bg = t }
+                    val isCursor = showCursor && col == cursorCol
+                    if (isCursor)  { val t = fg; fg = bg; bg = t }
+
+                    val charWidth  = com.termux.terminal.WcWidth.width(codePoint)
+                    val widthCols  = if (charWidth > 0) charWidth else 1
+                    val cellSpanW  = cellW * widthCols
+                    val cellX      = col  * cellW
+                    val cellY      = row  * cellH
+
+                    if (bg != 0xFFFFFFFF.toInt() || isCursor) {
+                        drawRect(
+                            color    = Color(bg),
+                            topLeft  = Offset(cellX, cellY),
+                            size     = Size(cellSpanW, cellH)
+                        )
+                    }
+
+                    if (!isInvisible && codePoint != ' '.code && codePoint != 0) {
+                        drawIntoCanvas { canvas ->
+                            textPaint.color         = fg
+                            textPaint.isFakeBoldText  = isBold
+                            textPaint.isUnderlineText = isUnderline
+                            val str = String(Character.toChars(codePoint))
+                            if (widthCols > 1) {
+                                textPaint.textScaleX = 1f
+                                val measured = textPaint.measureText(str)
+                                val offsetX  = ((cellSpanW - measured) / 2f).coerceAtLeast(0f)
+                                canvas.nativeCanvas.drawText(str, cellX + offsetX, cellY + baseline, textPaint)
+                            } else {
+                                textPaint.textScaleX = 1f
+                                val measured = textPaint.measureText(str)
+                                textPaint.textScaleX = if (measured > 0.1f) cellW / measured else 1f
+                                canvas.nativeCanvas.drawText(str, cellX, cellY + baseline, textPaint)
+                                textPaint.textScaleX = 1f
+                            }
+                        }
+                    }
+                    col += widthCols
                 }
             }
-    ) {
-        // ── 核心渲染修复 ────────────────────────────────────────────────────────
-        // 在 draw lambda 内读取 drawTickState.longValue：
-        // Compose 将其注册为 draw-phase 依赖（不是 composition 依赖）。
-        // 当 IO 线程写入 drawTickState.longValue++（来自 SshTerminalBridge.onInvalidate），
-        // Compose 只重新执行此 draw lambda，不触发重组，延迟约 1 个 vsync（≤16ms）。
-        // 这是在键盘显示期间实现实时渲染的正确方法。
-        @Suppress("UNUSED_EXPRESSION")
-        drawTickState.longValue
-        val screen: TerminalBuffer = synchronized(emulator) { emulator.screen }
-        val colors: TerminalColors = emulator.mColors
-        val rows = emulator.mRows
-        val cols = emulator.mColumns
-        val cursorRow = emulator.cursorRow
-        val cursorCol = emulator.cursorCol
 
-        // 计算 scrollback 的起始行（从 buffer 顶部）
-        // scrollRows=0 表示正常视图（最后 rows 行）
-        val totalLines = try {
-            val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
-            f.isAccessible = true
-            f.getInt(screen)
-        } catch (_: Exception) { rows }
-        // 实际可向上滚动的最大行数
-        val maxScroll = (totalLines - rows).coerceAtLeast(0)
-        val effectiveScroll = scrollRows.coerceIn(0, maxScroll)
+            // ── 文字选择：高亮 + 手柄 ────────────────────────────────────
+            val sel = selection?.normalized()
+            if (sel != null) {
+                val selHighlight  = Color(0x550099FF)
+                val handleColor   = Color(0xFF1A73E8)
+                val handleStroke  = 2.5f
 
-        val mLinesField = TerminalBuffer::class.java.getDeclaredField("mLines")
-            .also { it.isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        val mLines = mLinesField.get(screen) as Array<TerminalRow?>
-
-        val mStyleField = TerminalRow::class.java.getDeclaredField("mStyle")
-            .also { it.isAccessible = true }
-
-        val defaultStyle: Long = try {
-            val encodeMethod = TextStyle::class.java.getDeclaredMethod(
-                "encode", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType
-            ).also { it.isAccessible = true }
-            encodeMethod.invoke(null, 0, 15, 0) as Long
-        } catch (_: Exception) { 0L }
-
-        for (row in 0 until rows) {
-            // 当滚动时，从 buffer 更早的位置读取行
-            val bufferRow = row - effectiveScroll
-            val line: TerminalRow = try {
-                mLines[screen.externalToInternalRow(bufferRow)] ?: continue
-            } catch (_: Exception) { continue }
-
-            // 滚动时光标不显示（不在当前视图的正常位置）
-            val showCursor = effectiveScroll == 0 && row == cursorRow && cursorVisible
-
-            var charIndex = 0
-            var col = 0
-            while (col < cols && charIndex < line.spaceUsed) {
-                val c = line.mText[charIndex]
-                val codePoint: Int
-                if (c.isHighSurrogate() && charIndex + 1 < line.spaceUsed) {
-                    codePoint = Character.toCodePoint(c, line.mText[charIndex + 1])
-                    charIndex += 2
-                } else {
-                    codePoint = c.code
-                    charIndex++
-                }
-
-                val style: Long = try {
-                    val mStyle = mStyleField.get(line) as LongArray
-                    if (col < mStyle.size) mStyle[col] else defaultStyle
-                } catch (_: Exception) { defaultStyle }
-                val effect = TextStyle.decodeEffect(style)
-
-                val isBold      = (effect and TextStyle.CHARACTER_ATTRIBUTE_BOLD) != 0
-                val isUnderline = (effect and TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE) != 0
-                val isInverse   = (effect and TextStyle.CHARACTER_ATTRIBUTE_INVERSE) != 0
-                val isInvisible = (effect and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) != 0
-
-                var fgIdx = TextStyle.decodeForeColor(style)
-                var bgIdx = TextStyle.decodeBackColor(style)
-
-                // Default colors: fg = pure black, bg = pure white (light theme)
-                if (fgIdx == TextStyle.COLOR_INDEX_FOREGROUND) fgIdx = 0   // black
-                if (bgIdx == TextStyle.COLOR_INDEX_BACKGROUND) bgIdx = 15  // white
-
-                var fg = resolveColor(fgIdx, true, colors)
-                var bg = resolveColor(bgIdx, false, colors)
-
-                // Override indexed black/white to true black/white so text is crisp
-                if (fgIdx == 0)  fg = 0xFF000000.toInt()
-                if (bgIdx == 15) bg = 0xFFFFFFFF.toInt()
-
-                if (isInverse) { val tmp = fg; fg = bg; bg = tmp }
-
-                // Is cursor here?
-                val isCursor = showCursor && col == cursorCol
-                if (isCursor) { val tmp = fg; fg = bg; bg = tmp }
-
-                // Advance by display width (wide chars take 2 columns)
-                val charWidth = com.termux.terminal.WcWidth.width(codePoint)
-                val widthCols = if (charWidth > 0) charWidth else 1
-                val cellSpanW = cellW * widthCols
-
-                val cellX = col * cellW
-                val cellY = row * cellH
-
-                // Background rect — skip pure white (default bg) unless cursor
-                // Spans the full width of wide (e.g. CJK) characters so no gap/overlap occurs
-                if (bg != 0xFFFFFFFF.toInt() || isCursor) {
+                // 选中区域高亮
+                for (row in sel.startRow..sel.endRow) {
+                    val visRow  = row - startLine
+                    if (visRow < 0 || visRow >= rows) continue
+                    val fromCol = if (row == sel.startRow) sel.startCol else 0
+                    val toCol   = if (row == sel.endRow)   sel.endCol   else cols - 1
+                    if (fromCol > toCol) continue
                     drawRect(
-                        color = Color(bg),
-                        topLeft = Offset(cellX, cellY),
-                        size = Size(cellSpanW, cellH)
+                        color    = selHighlight,
+                        topLeft  = Offset(fromCol * cellW, visRow * cellH),
+                        size     = Size((toCol - fromCol + 1) * cellW, cellH)
                     )
                 }
 
-                // Character
-                if (!isInvisible && codePoint != ' '.code && codePoint != 0) {
-                    drawIntoCanvas { canvas ->
-                        textPaint.color = fg
-                        textPaint.isFakeBoldText = isBold
-                        textPaint.isUnderlineText = isUnderline
-                        val str = String(Character.toChars(codePoint))
-                        if (widthCols > 1) {
-                            // Center wide glyphs (CJK etc.) within their multi-cell span so
-                            // they don't visually collide with the following character.
-                            textPaint.textScaleX = 1f
-                            val measured = textPaint.measureText(str)
-                            val offsetX = ((cellSpanW - measured) / 2f).coerceAtLeast(0f)
-                            canvas.nativeCanvas.drawText(str, cellX + offsetX, cellY + baseline, textPaint)
-                        } else {
-                            // Force the glyph to occupy exactly one cell width regardless of
-                            // the font's natural advance, so characters stay tightly packed
-                            // on the monospace grid instead of drifting apart.
-                            textPaint.textScaleX = 1f
-                            val measured = textPaint.measureText(str)
-                            textPaint.textScaleX = if (measured > 0.1f) (cellW / measured) else 1f
-                            canvas.nativeCanvas.drawText(str, cellX, cellY + baseline, textPaint)
-                            textPaint.textScaleX = 1f
-                        }
-                    }
+                // 起始手柄（选区左上角的垂直线 + 圆）
+                val sv = sel.startRow - startLine
+                if (sv in -1..rows) {
+                    val hx = sel.startCol * cellW
+                    val hy = (sv + 1) * cellH
+                    drawLine(handleColor, Offset(hx, sv.coerceAtLeast(0) * cellH), Offset(hx, hy), handleStroke)
+                    drawCircle(handleColor, handleRadius, Offset(hx, hy))
                 }
 
-                col += widthCols
+                // 结束手柄（选区右下角的垂直线 + 圆）
+                val ev = sel.endRow - startLine
+                if (ev in -1..rows) {
+                    val hx = (sel.endCol + 1) * cellW
+                    val hy = (ev + 1) * cellH
+                    drawLine(handleColor, Offset(hx, ev.coerceAtLeast(0) * cellH), Offset(hx, hy), handleStroke)
+                    drawCircle(handleColor, handleRadius, Offset(hx, hy))
+                }
+            }
+        } // end Canvas
+
+        // ── 复制弹窗（叠加层） ───────────────────────────────────────────
+        val sel = selection?.normalized()
+        if (sel != null) {
+            val visStartRow = (sel.startRow - currentStartLine).coerceAtLeast(0)
+            // 弹窗水平居中于选区，垂直在选区起始行上方
+            val centerXPx   = ((sel.startCol + sel.endCol + 1) * cellW / 2).toInt()
+            val popupTopPx  = (visStartRow * cellH - 96f).toInt().coerceAtLeast(4)
+
+            Box(
+                modifier = Modifier.offset {
+                    IntOffset(
+                        x = centerXPx - 36.dp.roundToPx(),
+                        y = popupTopPx
+                    )
+                }
+            ) {
+                Surface(
+                    shape          = RoundedCornerShape(8.dp),
+                    color          = Color(0xFF212121),
+                    shadowElevation = 8.dp,
+                    tonalElevation  = 0.dp
+                ) {
+                    IconButton(
+                        onClick = {
+                            // 复制选中文字到剪贴板
+                            try {
+                                val text = synchronized(emulator) {
+                                    emulator.screen.getSelectedText(
+                                        sel.startCol, sel.startRow,
+                                        sel.endCol,   sel.endRow
+                                    )
+                                }
+                                val cm = context.getSystemService(
+                                    android.content.Context.CLIPBOARD_SERVICE
+                                ) as android.content.ClipboardManager
+                                cm.setPrimaryClip(
+                                    android.content.ClipData.newPlainText("terminal", text)
+                                )
+                            } catch (_: Exception) { /* 忽略剪贴板错误 */ }
+                            selection = null
+                        },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector  = Icons.Outlined.ContentCopy,
+                            contentDescription = "复制",
+                            tint         = Color.White,
+                            modifier     = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
         }
-    }
+    } // end Box
 }
 
 // ---------------------------------------------------------------------------
-// Extension to get screen — emulator.getScreen() is public but named getScreen()
+// TerminalEmulator extensions
 // ---------------------------------------------------------------------------
 private val TerminalEmulator.screen: TerminalBuffer get() = this.getScreen()
-private val TerminalEmulator.cursorRow: Int get() {
-    return try {
-        val f = TerminalEmulator::class.java.getDeclaredField("mCursorRow")
-        f.isAccessible = true
-        f.getInt(this)
-    } catch (_: Exception) { 0 }
-}
-private val TerminalEmulator.cursorCol: Int get() {
-    return try {
-        val f = TerminalEmulator::class.java.getDeclaredField("mCursorCol")
-        f.isAccessible = true
-        f.getInt(this)
-    } catch (_: Exception) { 0 }
-}
+
+private val TerminalEmulator.cursorRow: Int get() = try {
+    TerminalEmulator::class.java.getDeclaredField("mCursorRow")
+        .also { it.isAccessible = true }.getInt(this)
+} catch (_: Exception) { 0 }
+
+private val TerminalEmulator.cursorCol: Int get() = try {
+    TerminalEmulator::class.java.getDeclaredField("mCursorCol")
+        .also { it.isAccessible = true }.getInt(this)
+} catch (_: Exception) { 0 }
