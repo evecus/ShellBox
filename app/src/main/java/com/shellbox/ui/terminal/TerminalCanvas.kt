@@ -74,14 +74,11 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
 // ---------------------------------------------------------------------------
 // Text selection
 //
-// 坐标系说明（与 TerminalBuffer.externalToInternalRow / getSelectedText 一致）：
-//   row  0            = 当前屏幕首行
+// 坐标系与 TerminalBuffer.getSelectedText / externalToInternalRow 一致：
+//   row  0             = 当前屏幕首行
 //   row  mScreenRows-1 = 当前屏幕末行
-//   row  -N           = 滚动历史第 N 行（上方）
+//   row  -N            = 滚动历史第 N 行
 //   externalRow = visRow - effectiveScroll
-//     其中 visRow = 0..rows-1（画布从上到下的可见行号）
-//
-// TerminalSelection 存储的行号与 getSelectedText 完全相同，直接传入即可。
 // ---------------------------------------------------------------------------
 private data class TerminalSelection(
     val startRow: Int, val startCol: Int,
@@ -93,7 +90,12 @@ private data class TerminalSelection(
 }
 
 /**
- * Compose Canvas-based VT100 terminal renderer with text-selection support.
+ * Compose Canvas-based VT100 terminal renderer with smooth text-selection.
+ *
+ * 手柄拖动流畅的关键：
+ * - [selection]     已提交状态，作为 pointerInput key（仅 null↔非null 切换才重启协程）
+ * - [liveSelection] 拖动中的实时位置，不是 key，更新时不重启协程
+ * - pointerInput key = (selection != null)，整个拖拽过程中不变，协程不被中断
  */
 @Composable
 fun TerminalCanvas(
@@ -122,7 +124,7 @@ fun TerminalCanvas(
         }
     }
 
-    val cellW = remember(fontSizePx, typeface) {
+    val cellW    = remember(fontSizePx, typeface) {
         textPaint.measureText(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         ) / 62f
@@ -136,7 +138,12 @@ fun TerminalCanvas(
     var dragAccumPx by remember { mutableFloatStateOf(0f) }
 
     // ── 文字选择状态 ─────────────────────────────────────────────────────────
-    var selection by remember { mutableStateOf<TerminalSelection?>(null) }
+    // selection     = 已提交的选区（pointerInput key 依赖此值的 null/非null 状态）
+    // liveSelection = 拖动中的实时选区（不是 key，更新不会重启 pointerInput）
+    // 渲染时用 liveSelection ?: selection，确保手柄实时跟手
+    var selection     by remember { mutableStateOf<TerminalSelection?>(null) }
+    var liveSelection by remember { mutableStateOf<TerminalSelection?>(null) }
+    val displaySel: TerminalSelection? get() = (liveSelection ?: selection)?.normalized()
 
     LaunchedEffect(renderTick) { if (scrollRows == 0) dragAccumPx = 0f }
 
@@ -146,41 +153,35 @@ fun TerminalCanvas(
     val handleRadius      = cellH * 0.42f
     val handleTouchRadius = cellH * 1.5f
 
-    // ── 坐标转换 ──────────────────────────────────────────────────────────────
-    // 像素 → (externalRow, col)
-    // externalRow = visRow - effectiveScroll（与 getSelectedText 坐标一致）
+    // externalRow = visRow - effectiveScroll（与 getSelectedText 一致）
     fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
         val col    = (x / cellW.coerceAtLeast(1f)).toInt().coerceIn(0, emulator.mColumns - 1)
         val visRow = (y / cellH.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
-        // externalRow = visRow - effectiveScroll，effectiveScroll 此处用 scrollRows 近似
         return (visRow - scrollRows) to col
     }
 
-    // externalRow → 画布像素 Y（底部，供手柄绘制用）
-    // visRow = externalRow + scrollRows
-    fun extRowBottomY(extRow: Int): Float = (extRow + scrollRows + 1) * cellH
-
-    // 起始手柄中心（像素，供触控检测用）
+    // 手柄像素中心（用 scrollRows 近似 effectiveScroll，供触控区判断）
     fun startHandleCenter(sel: TerminalSelection): Offset {
         val n = sel.normalized()
-        return Offset(n.startCol * cellW, extRowBottomY(n.startRow))
+        return Offset(n.startCol * cellW, (n.startRow + scrollRows + 1) * cellH)
     }
-
-    // 结束手柄中心（像素，供触控检测用）
     fun endHandleCenter(sel: TerminalSelection): Offset {
         val n = sel.normalized()
-        return Offset((n.endCol + 1) * cellW, extRowBottomY(n.endRow))
+        return Offset((n.endCol + 1) * cellW, (n.endRow + scrollRows + 1) * cellH)
     }
 
     Box(modifier = modifier) {
 
-        // ── 终端画布 ──────────────────────────────────────────────────────────
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.White)
-                .pointerInput(selection, cellW, cellH) {
+                // ── 手势处理 ────────────────────────────────────────────────
+                // key = (selection != null)：仅在"有选区↔无选区"切换时重启协程
+                // 拖动期间 key 不变，liveSelection 更新不中断拖拽，手柄丝滑跟手
+                .pointerInput(selection != null, cellW, cellH) {
                     if (selection == null) {
+                        // 无选区：单击呼出键盘，长按开始选择
                         detectTapGestures(
                             onTap = { onRequestFocus() },
                             onLongPress = { offset ->
@@ -193,6 +194,7 @@ fun TerminalCanvas(
                             }
                         )
                     } else {
+                        // 有选区：拖动手柄 或 点击空白取消
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val pos  = down.position
@@ -202,32 +204,50 @@ fun TerminalCanvas(
                             val endPos   = endHandleCenter(sel)
 
                             when {
+                                // ── 拖动起始手柄 ───────────────────────────
                                 (pos - startPos).getDistance() < handleTouchRadius -> {
+                                    liveSelection = sel.normalized()
                                     drag(down.id) { change ->
-                                        val (row, col) = pixelToCell(change.position.x, change.position.y)
-                                        selection = (selection ?: return@drag).normalized()
-                                            .copy(startRow = row, startCol = col)
+                                        val (row, col) = pixelToCell(
+                                            change.position.x, change.position.y
+                                        )
+                                        liveSelection = liveSelection
+                                            ?.copy(startRow = row, startCol = col)
                                         change.consume()
                                     }
+                                    // 拖拽结束：提交实时位置，清除 live
+                                    selection     = liveSelection
+                                    liveSelection = null
                                 }
+                                // ── 拖动结束手柄 ───────────────────────────
                                 (pos - endPos).getDistance() < handleTouchRadius -> {
+                                    liveSelection = sel.normalized()
                                     drag(down.id) { change ->
-                                        val (row, col) = pixelToCell(change.position.x, change.position.y)
-                                        selection = (selection ?: return@drag).normalized()
-                                            .copy(endRow = row, endCol = col)
+                                        val (row, col) = pixelToCell(
+                                            change.position.x, change.position.y
+                                        )
+                                        liveSelection = liveSelection
+                                            ?.copy(endRow = row, endCol = col)
                                         change.consume()
                                     }
+                                    selection     = liveSelection
+                                    liveSelection = null
                                 }
+                                // ── 点击空白：取消选区 ─────────────────────
                                 else -> {
                                     val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                                         waitForUpOrCancellation()
                                     }
-                                    if (up != null) selection = null
+                                    if (up != null) {
+                                        selection     = null
+                                        liveSelection = null
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                // ── 滚动（独立 pointerInput，与选择手势并行不冲突）
                 .pointerInput(cellH) {
                     detectVerticalDragGestures(
                         onDragStart  = { dragAccumPx = 0f },
@@ -240,9 +260,10 @@ fun TerminalCanvas(
                                 dragAccumPx -= rowsDelta * cellH
                                 val screen = synchronized(emulator) { emulator.screen }
                                 val totalLines = try {
-                                    val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                                    TerminalBuffer::class.java
+                                        .getDeclaredField("mTotalRows")
                                         .also { it.isAccessible = true }
-                                    f.getInt(screen)
+                                        .getInt(screen)
                                 } catch (_: Exception) { emulator.mRows }
                                 val maxScroll = (totalLines - emulator.mRows).coerceAtLeast(0)
                                 scrollRows = (scrollRows + rowsDelta).coerceIn(0, maxScroll)
@@ -258,20 +279,20 @@ fun TerminalCanvas(
                     }
                 }
         ) {
+            // draw-phase 依赖：IO 线程写 drawTickState → 仅重跑 draw lambda
             @Suppress("UNUSED_EXPRESSION")
             drawTickState.longValue
 
-            val screen: TerminalBuffer = synchronized(emulator) { emulator.screen }
-            val colors    = emulator.mColors
-            val rows      = emulator.mRows
-            val cols      = emulator.mColumns
+            val screen  = synchronized(emulator) { emulator.screen }
+            val colors  = emulator.mColors
+            val rows    = emulator.mRows
+            val cols    = emulator.mColumns
             val cursorRow = emulator.cursorRow
             val cursorCol = emulator.cursorCol
 
             val totalLines = try {
-                val f = TerminalBuffer::class.java.getDeclaredField("mTotalRows")
-                    .also { it.isAccessible = true }
-                f.getInt(screen)
+                TerminalBuffer::class.java.getDeclaredField("mTotalRows")
+                    .also { it.isAccessible = true }.getInt(screen)
             } catch (_: Exception) { rows }
 
             val maxScroll       = (totalLines - rows).coerceAtLeast(0)
@@ -286,18 +307,16 @@ fun TerminalCanvas(
                 .also { it.isAccessible = true }
 
             val defaultStyle: Long = try {
-                val m = TextStyle::class.java.getDeclaredMethod(
+                TextStyle::class.java.getDeclaredMethod(
                     "encode",
                     Int::class.javaPrimitiveType,
                     Int::class.javaPrimitiveType,
                     Int::class.javaPrimitiveType
-                ).also { it.isAccessible = true }
-                m.invoke(null, 0, 15, 0) as Long
+                ).also { it.isAccessible = true }.invoke(null, 0, 15, 0) as Long
             } catch (_: Exception) { 0L }
 
             // ── 渲染终端行 ────────────────────────────────────────────────
             for (row in 0 until rows) {
-                // externalRow：与 getSelectedText 坐标系一致（0 = 屏幕首行，负 = 滚动历史）
                 val externalRow = row - effectiveScroll
                 val line: TerminalRow = try {
                     mLines[screen.externalToInternalRow(externalRow)] ?: continue
@@ -350,11 +369,7 @@ fun TerminalCanvas(
                     val cellY     = row * cellH
 
                     if (bg != 0xFFFFFFFF.toInt() || isCursor) {
-                        drawRect(
-                            color    = Color(bg),
-                            topLeft  = Offset(cellX, cellY),
-                            size     = Size(cellSpanW, cellH)
-                        )
+                        drawRect(Color(bg), Offset(cellX, cellY), Size(cellSpanW, cellH))
                     }
 
                     if (!isInvisible && codePoint != ' '.code && codePoint != 0) {
@@ -366,8 +381,8 @@ fun TerminalCanvas(
                             if (widthCols > 1) {
                                 textPaint.textScaleX = 1f
                                 val measured = textPaint.measureText(str)
-                                val offsetX  = ((cellSpanW - measured) / 2f).coerceAtLeast(0f)
-                                canvas.nativeCanvas.drawText(str, cellX + offsetX, cellY + baseline, textPaint)
+                                val ox = ((cellSpanW - measured) / 2f).coerceAtLeast(0f)
+                                canvas.nativeCanvas.drawText(str, cellX + ox, cellY + baseline, textPaint)
                             } else {
                                 textPaint.textScaleX = 1f
                                 val measured = textPaint.measureText(str)
@@ -382,15 +397,13 @@ fun TerminalCanvas(
             }
 
             // ── 文字选择：高亮 + 手柄 ────────────────────────────────────
-            val sel = selection?.normalized()
+            // displaySel = liveSelection ?: selection，拖动时实时反映手柄位置
+            val sel = displaySel
             if (sel != null) {
                 val selHighlight = Color(0x550099FF)
                 val handleColor  = Color(0xFF1A73E8)
                 val strokeW      = 2.5f
 
-                // 选中区域高亮
-                // sel.startRow / endRow 是 externalRow（与 getSelectedText 坐标一致）
-                // visRow = externalRow + effectiveScroll
                 for (extRow in sel.startRow..sel.endRow) {
                     val visRow  = extRow + effectiveScroll
                     if (visRow < 0 || visRow >= rows) continue
@@ -398,9 +411,9 @@ fun TerminalCanvas(
                     val toCol   = if (extRow == sel.endRow)   sel.endCol   else cols - 1
                     if (fromCol > toCol) continue
                     drawRect(
-                        color    = selHighlight,
-                        topLeft  = Offset(fromCol * cellW, visRow * cellH),
-                        size     = Size((toCol - fromCol + 1) * cellW, cellH)
+                        selHighlight,
+                        Offset(fromCol * cellW, visRow * cellH),
+                        Size((toCol - fromCol + 1) * cellW, cellH)
                     )
                 }
 
@@ -424,22 +437,14 @@ fun TerminalCanvas(
             }
         } // end Canvas
 
-        // ── 复制弹窗 ─────────────────────────────────────────────────────────
-        val sel = selection?.normalized()
-        if (sel != null) {
-            // visRow = externalRow + scrollRows（composable 作用域用 scrollRows 代替 effectiveScroll）
-            val visStartRow = (sel.startRow + scrollRows).coerceAtLeast(0)
-            val centerXPx   = ((sel.startCol + sel.endCol + 1) * cellW / 2).toInt()
+        // ── 复制弹窗（用 selection，不用 liveSelection，拖动时弹窗不乱跳）
+        val commitSel = selection?.normalized()
+        if (commitSel != null) {
+            val visStartRow = (commitSel.startRow + scrollRows).coerceAtLeast(0)
+            val centerXPx   = ((commitSel.startCol + commitSel.endCol + 1) * cellW / 2).toInt()
             val popupTopPx  = (visStartRow * cellH - 180f).toInt().coerceAtLeast(4)
 
-            Box(
-                modifier = Modifier.offset {
-                    IntOffset(
-                        x = centerXPx - 36.dp.roundToPx(),
-                        y = popupTopPx
-                    )
-                }
-            ) {
+            Box(modifier = Modifier.offset { IntOffset(centerXPx - 36.dp.roundToPx(), popupTopPx) }) {
                 Surface(
                     shape           = RoundedCornerShape(8.dp),
                     color           = Color(0xFF212121),
@@ -449,11 +454,10 @@ fun TerminalCanvas(
                     IconButton(
                         onClick = {
                             try {
-                                // sel.startRow/endRow 与 getSelectedText 坐标系一致，直接传入
                                 val text = synchronized(emulator) {
                                     emulator.screen.getSelectedText(
-                                        sel.startCol, sel.startRow,
-                                        sel.endCol,   sel.endRow
+                                        commitSel.startCol, commitSel.startRow,
+                                        commitSel.endCol,   commitSel.endRow
                                     )
                                 }
                                 val cm = context.getSystemService(
@@ -463,7 +467,8 @@ fun TerminalCanvas(
                                     android.content.ClipData.newPlainText("terminal", text)
                                 )
                             } catch (_: Exception) { }
-                            selection = null
+                            selection     = null
+                            liveSelection = null
                         },
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -477,7 +482,7 @@ fun TerminalCanvas(
                 }
             }
         }
-    } // end Box
+    }
 }
 
 // ---------------------------------------------------------------------------
