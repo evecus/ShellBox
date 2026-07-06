@@ -143,7 +143,6 @@ fun TerminalCanvas(
     // 渲染时用 liveSelection ?: selection，确保手柄实时跟手
     var selection     by remember { mutableStateOf<TerminalSelection?>(null) }
     var liveSelection by remember { mutableStateOf<TerminalSelection?>(null) }
-    val displaySel: TerminalSelection? get() = (liveSelection ?: selection)?.normalized()
 
     LaunchedEffect(renderTick) { if (scrollRows == 0) dragAccumPx = 0f }
 
@@ -398,7 +397,7 @@ fun TerminalCanvas(
 
             // ── 文字选择：高亮 + 手柄 ────────────────────────────────────
             // displaySel = liveSelection ?: selection，拖动时实时反映手柄位置
-            val sel = displaySel
+            val sel = (liveSelection ?: selection)?.normalized()
             if (sel != null) {
                 val selHighlight = Color(0x550099FF)
                 val handleColor  = Color(0xFF1A73E8)
