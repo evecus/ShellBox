@@ -31,25 +31,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $GITHUB_WORKSPACE/shellbox-release.jks
-          echo "Keystore decoded, size: $(wc -c < shellbox-release.jks) bytes"
-
-      - name: Build Release APK
-        env:
-          KEYSTORE_FILE: ${{ github.workspace }}/shellbox-release.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew clean assembleRelease --stacktrace
+      - name: Build Debug APK
+        run: ./gradlew clean assembleDebug --stacktrace
 
       - name: Rename APK
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/release/app-release.apk \
-             artifacts/ShellBox-arm64.apk
-          echo "APK size: $(wc -c < artifacts/ShellBox-${{ github.ref_name }}.apk) bytes"
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/ShellBox-debug.apk
+          echo "APK size: $(wc -c < artifacts/ShellBox-debug.apk) bytes"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -65,15 +55,12 @@ jobs:
           tag_name: test
           files: artifacts/ShellBox-*.apk
           body: |
-            ## ShellBox ${{ github.ref_name }}
+            ## ShellBox Debug Build
 
             ### 安装说明
-            1. 下载 `ShellBox-arm64.apk`
+            1. 下载 `ShellBox-debug.apk`
             2. 在 Android 设备上允许安装未知来源应用
             3. 安装并运行
-
-            ### 更新内容
-            请查看 Commits 了解本版本变更。
           draft: false
           prerelease: true
         env:
