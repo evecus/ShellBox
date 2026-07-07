@@ -59,6 +59,11 @@ sealed class SshResult {
     data class Error(val message: String) : SshResult()
 }
 
+sealed class TestConnectionResult {
+    object Success : TestConnectionResult()
+    data class Error(val message: String) : TestConnectionResult()
+}
+
 @Singleton
 class SshManager @Inject constructor(
     @ApplicationContext private val context: Context
@@ -137,6 +142,48 @@ class SshManager @Inject constructor(
                 SshResult.Success(sshSession)
             } catch (e: Exception) {
                 SshResult.Error(e.message ?: "Connection failed")
+            }
+        }
+
+    /**
+     * Attempts to open an SSH connection and authenticate using the given
+     * [QuickConnect] info, then immediately tears the connection down.
+     * Used to let the user verify their connection details before saving
+     * or connecting for real, without leaving a session open or opening a terminal.
+     */
+    suspend fun testConnection(quickConnect: QuickConnect): TestConnectionResult =
+        withContext(Dispatchers.IO) {
+            var client: SSHClient? = null
+            try {
+                val config = AndroidConfig()
+                config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
+                    !factory.name.contains("25519", ignoreCase = true)
+                }
+
+                val c = SSHClient(config)
+                client = c
+                c.connectTimeout = 8000
+                c.timeout = 8000
+                c.addHostKeyVerifier(PromiscuousVerifier())
+                c.connect(quickConnect.host, quickConnect.port)
+
+                when (quickConnect.authType) {
+                    AuthType.PASSWORD -> c.authPassword(quickConnect.username, quickConnect.password)
+                    AuthType.PRIVATE_KEY -> {
+                        val keyContent = resolvePrivateKeyContent(
+                            quickConnect.privateKeySource,
+                            quickConnect.privateKeyValue
+                        )
+                        val keyProvider = keyProviderFromContent(c, keyContent, quickConnect.privateKeyPassphrase)
+                        c.authPublickey(quickConnect.username, keyProvider)
+                    }
+                }
+
+                TestConnectionResult.Success
+            } catch (e: Exception) {
+                TestConnectionResult.Error(e.message ?: "连接失败")
+            } finally {
+                try { client?.disconnect() } catch (_: Exception) {}
             }
         }
 
