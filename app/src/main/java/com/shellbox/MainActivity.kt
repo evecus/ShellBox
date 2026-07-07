@@ -16,6 +16,7 @@ import com.shellbox.ui.addserver.AddServerScreen
 import com.shellbox.ui.home.HomeScreen
 import com.shellbox.ui.settings.KeySettingsScreen
 import com.shellbox.ui.settings.SettingsScreen
+import com.shellbox.ui.sftp.SftpScreen
 import com.shellbox.ui.terminal.TerminalScreen
 import com.shellbox.ui.terminal.TerminalViewModel
 import com.shellbox.ui.theme.ShellBoxTheme
@@ -52,7 +53,11 @@ fun ShellBoxNavGraph() {
                 },
                 onAddServer = { navController.navigate("add_server") },
                 onEditServer = { server -> navController.navigate("add_server?id=${server.id}") },
-                onOpenSettings = { navController.navigate("settings") }
+                onOpenSettings = { navController.navigate("settings") },
+                onOpenFiles = { server ->
+                    navController.currentBackStackEntry?.savedStateHandle?.set("sftpServer", server)
+                    navController.navigate("sftp")
+                }
             )
         }
 
@@ -99,6 +104,17 @@ fun ShellBoxNavGraph() {
             TerminalScreen(
                 onBack = { navController.popBackStack() },
                 viewModel = terminalVm
+            )
+        }
+
+        composable("sftp") {
+            // Consume the server passed from HomeScreen's "文件" button
+            val prevEntry = navController.previousBackStackEntry
+            val server = prevEntry?.savedStateHandle?.remove<Server>("sftpServer")
+
+            SftpScreen(
+                server = server,
+                onBack = { navController.popBackStack() }
             )
         }
     }

@@ -64,6 +64,19 @@ sealed class TestConnectionResult {
     data class Error(val message: String) : TestConnectionResult()
 }
 
+/** Holds an authenticated SSH client + its SFTP subsystem, kept alive while the user browses files. */
+data class SftpSession(
+    val id: String,
+    val label: String,
+    val client: SSHClient,
+    val sftpClient: net.schmizz.sshj.sftp.SFTPClient
+)
+
+sealed class SftpOpenResult {
+    data class Success(val session: SftpSession) : SftpOpenResult()
+    data class Error(val message: String) : SftpOpenResult()
+}
+
 @Singleton
 class SshManager @Inject constructor(
     @ApplicationContext private val context: Context
@@ -97,26 +110,76 @@ class SshManager @Inject constructor(
         return client.loadKeys(keyContent, null, passwordFinder)
     }
 
+    /**
+     * Creates a new [SSHClient], connects to the given host/port, and authenticates
+     * using the given credentials. Shared by the shell, connectivity-test, and SFTP
+     * code paths so auth logic (password vs. private key resolution) lives in one place.
+     */
+    private fun connectAndAuthenticate(
+        host: String,
+        port: Int,
+        username: String,
+        authType: AuthType,
+        password: String,
+        privateKeySource: PrivateKeySource,
+        privateKeyValue: String,
+        privateKeyPassphrase: String,
+        timeoutMs: Int? = null
+    ): SSHClient {
+        val config = AndroidConfig()
+        config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
+            !factory.name.contains("25519", ignoreCase = true)
+        }
+
+        val client = SSHClient(config)
+        if (timeoutMs != null) {
+            client.connectTimeout = timeoutMs
+            client.timeout = timeoutMs
+        }
+        client.addHostKeyVerifier(PromiscuousVerifier())
+        client.connect(host, port)
+
+        when (authType) {
+            AuthType.PASSWORD -> client.authPassword(username, password)
+            AuthType.PRIVATE_KEY -> {
+                val keyContent = resolvePrivateKeyContent(privateKeySource, privateKeyValue)
+                val keyProvider = keyProviderFromContent(client, keyContent, privateKeyPassphrase)
+                client.authPublickey(username, keyProvider)
+            }
+        }
+        return client
+    }
+
+    private fun connectAndAuthenticate(server: Server, timeoutMs: Int? = null): SSHClient =
+        connectAndAuthenticate(
+            host = server.host,
+            port = server.port,
+            username = server.username,
+            authType = server.authType,
+            password = server.password,
+            privateKeySource = server.privateKeySource,
+            privateKeyValue = server.privateKeyValue,
+            privateKeyPassphrase = server.privateKeyPassphrase,
+            timeoutMs = timeoutMs
+        )
+
+    private fun connectAndAuthenticate(quickConnect: QuickConnect, timeoutMs: Int? = null): SSHClient =
+        connectAndAuthenticate(
+            host = quickConnect.host,
+            port = quickConnect.port,
+            username = quickConnect.username,
+            authType = quickConnect.authType,
+            password = quickConnect.password,
+            privateKeySource = quickConnect.privateKeySource,
+            privateKeyValue = quickConnect.privateKeyValue,
+            privateKeyPassphrase = quickConnect.privateKeyPassphrase,
+            timeoutMs = timeoutMs
+        )
+
     suspend fun connect(server: Server, cols: Int = 220, rows: Int = 50): SshResult =
         withContext(Dispatchers.IO) {
             try {
-                val config = AndroidConfig()
-                config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
-                    !factory.name.contains("25519", ignoreCase = true)
-                }
-
-                val client = SSHClient(config)
-                client.addHostKeyVerifier(PromiscuousVerifier())
-                client.connect(server.host, server.port)
-
-                when (server.authType) {
-                    AuthType.PASSWORD -> client.authPassword(server.username, server.password)
-                    AuthType.PRIVATE_KEY -> {
-                        val keyContent = resolvePrivateKeyContent(server.privateKeySource, server.privateKeyValue)
-                        val keyProvider = keyProviderFromContent(client, keyContent, server.privateKeyPassphrase)
-                        client.authPublickey(server.username, keyProvider)
-                    }
-                }
+                val client = connectAndAuthenticate(server)
 
                 val session = client.startSession()
                 // Allocate PTY with explicit size and xterm-256color for full color + VT support
@@ -155,30 +218,7 @@ class SshManager @Inject constructor(
         withContext(Dispatchers.IO) {
             var client: SSHClient? = null
             try {
-                val config = AndroidConfig()
-                config.keyExchangeFactories = config.keyExchangeFactories.filter { factory ->
-                    !factory.name.contains("25519", ignoreCase = true)
-                }
-
-                val c = SSHClient(config)
-                client = c
-                c.connectTimeout = 8000
-                c.timeout = 8000
-                c.addHostKeyVerifier(PromiscuousVerifier())
-                c.connect(quickConnect.host, quickConnect.port)
-
-                when (quickConnect.authType) {
-                    AuthType.PASSWORD -> c.authPassword(quickConnect.username, quickConnect.password)
-                    AuthType.PRIVATE_KEY -> {
-                        val keyContent = resolvePrivateKeyContent(
-                            quickConnect.privateKeySource,
-                            quickConnect.privateKeyValue
-                        )
-                        val keyProvider = keyProviderFromContent(c, keyContent, quickConnect.privateKeyPassphrase)
-                        c.authPublickey(quickConnect.username, keyProvider)
-                    }
-                }
-
+                client = connectAndAuthenticate(quickConnect, timeoutMs = 8000)
                 TestConnectionResult.Success
             } catch (e: Exception) {
                 TestConnectionResult.Error(e.message ?: "连接失败")
@@ -202,6 +242,62 @@ class SshManager @Inject constructor(
         return connect(server, cols, rows)
     }
 
+    private val _sftpSessions = MutableStateFlow<Map<String, SftpSession>>(emptyMap())
+    val sftpSessions: StateFlow<Map<String, SftpSession>> = _sftpSessions
+
+    /** Opens a dedicated SFTP-only connection for the given saved server. */
+    suspend fun openSftp(server: Server): SftpOpenResult =
+        withContext(Dispatchers.IO) {
+            var client: SSHClient? = null
+            try {
+                val c = connectAndAuthenticate(server, timeoutMs = 10000)
+                client = c
+                val sftp = c.newSFTPClient()
+                val session = SftpSession(
+                    id = java.util.UUID.randomUUID().toString(),
+                    label = "${server.username}@${server.host}",
+                    client = c,
+                    sftpClient = sftp
+                )
+                _sftpSessions.value = _sftpSessions.value + (session.id to session)
+                SftpOpenResult.Success(session)
+            } catch (e: Exception) {
+                try { client?.disconnect() } catch (_: Exception) {}
+                SftpOpenResult.Error(e.message ?: "SFTP 连接失败")
+            }
+        }
+
+    /** Opens a dedicated SFTP-only connection using ad-hoc [QuickConnect] credentials. */
+    suspend fun openSftp(quickConnect: QuickConnect): SftpOpenResult =
+        withContext(Dispatchers.IO) {
+            var client: SSHClient? = null
+            try {
+                val c = connectAndAuthenticate(quickConnect, timeoutMs = 10000)
+                client = c
+                val sftp = c.newSFTPClient()
+                val session = SftpSession(
+                    id = java.util.UUID.randomUUID().toString(),
+                    label = "${quickConnect.username}@${quickConnect.host}",
+                    client = c,
+                    sftpClient = sftp
+                )
+                _sftpSessions.value = _sftpSessions.value + (session.id to session)
+                SftpOpenResult.Success(session)
+            } catch (e: Exception) {
+                try { client?.disconnect() } catch (_: Exception) {}
+                SftpOpenResult.Error(e.message ?: "SFTP 连接失败")
+            }
+        }
+
+    fun closeSftp(sessionId: String) {
+        val session = _sftpSessions.value[sessionId] ?: return
+        try {
+            session.sftpClient.close()
+            session.client.disconnect()
+        } catch (_: Exception) {}
+        _sftpSessions.value = _sftpSessions.value - sessionId
+    }
+
     fun disconnect(sessionId: String) {
         val session = _sessions.value[sessionId] ?: return
         try {
@@ -214,5 +310,6 @@ class SshManager @Inject constructor(
 
     fun disconnectAll() {
         _sessions.value.keys.toList().forEach { disconnect(it) }
+        _sftpSessions.value.keys.toList().forEach { closeSftp(it) }
     }
 }

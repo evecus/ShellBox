@@ -42,6 +42,7 @@ fun HomeScreen(
     onAddServer: () -> Unit,
     onEditServer: (Server) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenFiles: (Server) -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val servers by viewModel.servers.collectAsState()
@@ -144,7 +145,8 @@ fun HomeScreen(
                             onConnectServer(server)
                         },
                         onEdit = { onEditServer(server) },
-                        onDelete = { viewModel.deleteServer(server) }
+                        onDelete = { viewModel.deleteServer(server) },
+                        onOpenFiles = { onOpenFiles(server) }
                     )
                 }
             }
@@ -490,7 +492,8 @@ private fun ServerCard(
     server: Server,
     onConnect: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onOpenFiles: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -562,6 +565,10 @@ private fun ServerCard(
             }
 
             // Action buttons
+            IconButton(onClick = onOpenFiles, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.Folder, null, tint = Blue40,
+                    modifier = Modifier.size(18.dp))
+            }
             IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Outlined.Edit, null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp))
