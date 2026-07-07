@@ -14,6 +14,12 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** Which kind of connection info a tab was opened with — lets other screens (e.g. SFTP) reconnect using the same credentials. */
+sealed class ConnectionSource {
+    data class FromServer(val server: Server) : ConnectionSource()
+    data class FromQuickConnect(val quickConnect: QuickConnect) : ConnectionSource()
+}
+
 data class TabState(
     val sessionId: String,
     val label: String,
@@ -22,6 +28,7 @@ data class TabState(
     val errorMessage: String? = null,
     val isConnected: Boolean = false,
     val isDisconnected: Boolean = false,
+    val source: ConnectionSource? = null,
     // Incremented every time bridge notifies text changed → triggers recomposition
     val renderTick: Long = 0L
 )
@@ -72,19 +79,19 @@ class TerminalViewModel @Inject constructor(
     fun connectQuick(quickConnect: QuickConnect) {
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = "${quickConnect.username}@${quickConnect.host}"
-        addTab(tabId, label, host = quickConnect.host)
+        addTab(tabId, label, host = quickConnect.host, source = ConnectionSource.FromQuickConnect(quickConnect))
         doConnect(tabId) { sshManager.connect(quickConnect, termCols, termRows) }
     }
 
     fun connectServer(server: Server) {
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = server.name
-        addTab(tabId, label, host = server.host)
+        addTab(tabId, label, host = server.host, source = ConnectionSource.FromServer(server))
         doConnect(tabId) { sshManager.connect(server, termCols, termRows) }
     }
 
-    private fun addTab(tabId: String, label: String, host: String = "") {
-        val newTab = TabState(sessionId = tabId, label = label, host = host, isConnecting = true)
+    private fun addTab(tabId: String, label: String, host: String = "", source: ConnectionSource? = null) {
+        val newTab = TabState(sessionId = tabId, label = label, host = host, isConnecting = true, source = source)
         val newTabs = _uiState.value.tabs + newTab
         _uiState.update { it.copy(tabs = newTabs, activeTabIndex = newTabs.lastIndex) }
     }

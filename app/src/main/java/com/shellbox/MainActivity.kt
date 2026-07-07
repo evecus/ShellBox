@@ -17,6 +17,7 @@ import com.shellbox.ui.home.HomeScreen
 import com.shellbox.ui.settings.KeySettingsScreen
 import com.shellbox.ui.settings.SettingsScreen
 import com.shellbox.ui.sftp.SftpScreen
+import com.shellbox.ui.terminal.ConnectionSource
 import com.shellbox.ui.terminal.TerminalScreen
 import com.shellbox.ui.terminal.TerminalViewModel
 import com.shellbox.ui.theme.ShellBoxTheme
@@ -103,17 +104,30 @@ fun ShellBoxNavGraph() {
 
             TerminalScreen(
                 onBack = { navController.popBackStack() },
+                onOpenSftp = { source ->
+                    when (source) {
+                        is ConnectionSource.FromServer ->
+                            navController.currentBackStackEntry?.savedStateHandle?.set("sftpServer", source.server)
+                        is ConnectionSource.FromQuickConnect ->
+                            navController.currentBackStackEntry?.savedStateHandle?.set("sftpQuickConnect", source.quickConnect)
+                    }
+                    navController.navigate("sftp")
+                },
                 viewModel = terminalVm
             )
         }
 
         composable("sftp") {
-            // Consume the server passed from HomeScreen's "文件" button
+            // Consume whichever connection info was passed — HomeScreen's "文件" button
+            // sends a saved Server, while TerminalScreen's SFTP icon may send either
+            // a saved Server or ad-hoc QuickConnect credentials.
             val prevEntry = navController.previousBackStackEntry
             val server = prevEntry?.savedStateHandle?.remove<Server>("sftpServer")
+            val quickConnect = prevEntry?.savedStateHandle?.remove<QuickConnect>("sftpQuickConnect")
 
             SftpScreen(
                 server = server,
+                quickConnect = quickConnect,
                 onBack = { navController.popBackStack() }
             )
         }

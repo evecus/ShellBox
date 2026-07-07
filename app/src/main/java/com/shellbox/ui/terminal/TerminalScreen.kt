@@ -40,6 +40,7 @@ import com.shellbox.ui.theme.Blue40
 @Composable
 fun TerminalScreen(
     onBack: () -> Unit,
+    onOpenSftp: (ConnectionSource) -> Unit = {},
     viewModel: TerminalViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -83,8 +84,15 @@ fun TerminalScreen(
                             Icon(Icons.Filled.ArrowBack, null)
                         }
                     },
-                    // 右上角不再显示键盘切换按钮
-                    actions = {},
+                    // 右上角：仅在已连接且有可复用的连接信息时显示 SFTP 入口
+                    actions = {
+                        val source = uiState.activeTab?.source
+                        if (uiState.activeTab?.isConnected == true && source != null) {
+                            IconButton(onClick = { onOpenSftp(source) }) {
+                                Icon(Icons.Outlined.Folder, contentDescription = "文件管理 (SFTP)")
+                            }
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
                 if (uiState.tabs.size > 1) {
