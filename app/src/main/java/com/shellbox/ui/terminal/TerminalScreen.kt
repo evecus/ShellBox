@@ -28,7 +28,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -37,6 +39,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.OnApplyWindowInsetsListener
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.ui.theme.Blue40
 
@@ -114,14 +120,62 @@ fun TerminalScreen(
     ) { padding ->
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
+        val view = LocalView.current
+        val density = LocalDensity.current
 
-        // ── IME 高度和可见性 ────────────────────────────────────────────────────
-        // 之前的实现在 composition 阶段读取 WindowInsets.isImeVisible / WindowInsets.ime.getBottom()
-        // 再换算成 Modifier.padding(bottom = ...)，这个值比系统 IME 动画本身慢一帧，
-        // 导致键盘开合瞬间出现明显的"跳一下"中间态（内容先跳到最终位置，键盘动画才刚开始/刚结束）。
-        // Modifier.imePadding() 在 layout 阶段读取 IME insets，与系统动画逐帧同步，
-        // 因此这里不再手动换算 padding，交给 imePadding() 处理，过渡完全跟手。
-        val imeVisible = WindowInsets.isImeVisible
+        // ── IME 高度动画：原生 WindowInsetsAnimationCompat.Callback ──────────────
+        // Modifier.imePadding() 依赖 Compose 在 layout 阶段读取 IME insets，但在
+        // adjustNothing 窗口模式下，一些设备/系统版本不会在动画的每一帧都触发 Compose
+        // 重组/relayout，只在动画开始和结束时更新，结果就是内容"等键盘动画完全结束
+        // 后才一次性跳到位"，而不是跟着键盘一起动。
+        // 直接把 WindowInsetsAnimationCompat.Callback 挂到根 View 上是唯一在所有
+        // 设备上都能拿到"每一帧"回调的方式：onProgress 由系统动画驱动，逐帧同步调用。
+        // 这里用 mutableFloatStateOf 而非 Animatable，是因为系统已经把值算好逐帧喂给
+        // 我们了，不需要 Compose 自己再插值一次；直接同步写状态，避免协程调度带来的
+        // 额外一帧延迟，做到真正意义上的"帧对帧"跟手。
+        val imeHeightPx = remember { mutableFloatStateOf(0f) }
+        val imeVisible by remember { derivedStateOf { imeHeightPx.floatValue > 0.5f } }
+
+        DisposableEffect(view) {
+            val callback = object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP
+            ) {
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    val imeRunning = runningAnimations.any {
+                        it.typeMask and WindowInsetsCompat.Type.ime() != 0
+                    }
+                    if (imeRunning) {
+                        imeHeightPx.floatValue = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                    }
+                    return insets
+                }
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        // 动画结束后用真实最终值兜底，修正任何逐帧误差
+                        val finalInsets = ViewCompat.getRootWindowInsets(view)
+                        imeHeightPx.floatValue =
+                            finalInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.toFloat() ?: 0f
+                    }
+                }
+            }
+            val applyListener = OnApplyWindowInsetsListener { _, insets ->
+                // 非动画路径（例如首帧、或系统直接切换无动画）兜底同步一次
+                imeHeightPx.floatValue = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                insets
+            }
+            ViewCompat.setWindowInsetsAnimationCallback(view, callback)
+            ViewCompat.setOnApplyWindowInsetsListener(view, applyListener)
+            onDispose {
+                ViewCompat.setWindowInsetsAnimationCallback(view, null)
+                ViewCompat.setOnApplyWindowInsetsListener(view, null)
+            }
+        }
+
+        val imeHeightDp = with(density) { imeHeightPx.floatValue.toDp() }
 
         // ── draw-phase 实时渲染修复 ─────────────────────────────────────────────
         // view.postInvalidate() 在 API 29+ 只重播 RenderNode 缓存，不重新执行 drawBehind。
@@ -145,11 +199,12 @@ fun TerminalScreen(
             val activeTab = uiState.activeTab
 
             // 主列：终端画面 + 虚拟键盘 + 隐藏输入框
-            // imePadding() 把整列内容随系统键盘动画逐帧平滑地推到键盘上方，不再有中间跳变
+            // imeHeightDp 由原生 WindowInsetsAnimationCompat 回调逐帧驱动，
+            // 用它做 bottom padding，内容会跟着系统键盘动画同步移动，不再有跳变
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .imePadding()
+                    .padding(bottom = imeHeightDp)
             ) {
                 // 终端画面：weight(1f) 占满虚拟键盘以上的全部剩余空间
                 Box(
@@ -186,8 +241,7 @@ fun TerminalScreen(
                 }
 
                 // 虚拟键盘：系统键盘可见时才显示，紧贴终端下方 / 系统键盘上方
-                // 用 AnimatedVisibility 代替生硬的 if，让键盘行的出现/消失也有过渡，
-                // 避免和 imePadding() 的动画不同步造成的跳变
+                // 用 AnimatedVisibility 代替生硬的 if，让键盘行的出现/消失也有一点过渡
                 AnimatedVisibility(
                     visible = imeVisible && vkeyLayout.hasAnyKey,
                     enter = fadeIn(tween(150)) + expandVertically(tween(150)),
