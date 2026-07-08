@@ -54,13 +54,6 @@ jobs:
           name: ShellBox test
           tag_name: test
           files: artifacts/ShellBox-*.apk
-          body: |
-            ## ShellBox Debug Build
-
-            ### 安装说明
-            1. 下载 `ShellBox-debug.apk`
-            2. 在 Android 设备上允许安装未知来源应用
-            3. 安装并运行
           draft: false
           prerelease: true
         env:
