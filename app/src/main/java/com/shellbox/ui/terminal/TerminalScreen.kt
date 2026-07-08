@@ -1,7 +1,12 @@
 package com.shellbox.ui.terminal
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,7 +28,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -111,20 +115,13 @@ fun TerminalScreen(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
-        val density = LocalDensity.current
-
         // ── IME 高度和可见性 ────────────────────────────────────────────────────
-        // adjustNothing 下窗口不 resize，但系统照样把 IME insets 分发给 View 树。
-        // AndroidComposeView.onApplyWindowInsets 更新 LocalWindowInsets，触发重组。
-        // OnGlobalLayoutListener 在 adjustNothing 下不触发（无 layout 变化），不能用。
-        // WindowInsets.isImeVisible 直接从 LocalWindowInsets 读取，可靠且实时。
+        // 之前的实现在 composition 阶段读取 WindowInsets.isImeVisible / WindowInsets.ime.getBottom()
+        // 再换算成 Modifier.padding(bottom = ...)，这个值比系统 IME 动画本身慢一帧，
+        // 导致键盘开合瞬间出现明显的"跳一下"中间态（内容先跳到最终位置，键盘动画才刚开始/刚结束）。
+        // Modifier.imePadding() 在 layout 阶段读取 IME insets，与系统动画逐帧同步，
+        // 因此这里不再手动换算 padding，交给 imePadding() 处理，过渡完全跟手。
         val imeVisible = WindowInsets.isImeVisible
-        // 只在 imeVisible 时取高度，避免导航栏残留 inset 被误计入
-        val imeHeightDp = if (imeVisible) {
-            with(density) { WindowInsets.ime.getBottom(density).toDp() }
-        } else {
-            0.dp
-        }
 
         // ── draw-phase 实时渲染修复 ─────────────────────────────────────────────
         // view.postInvalidate() 在 API 29+ 只重播 RenderNode 缓存，不重新执行 drawBehind。
@@ -148,11 +145,11 @@ fun TerminalScreen(
             val activeTab = uiState.activeTab
 
             // 主列：终端画面 + 虚拟键盘 + 隐藏输入框
-            // adjustNothing 窗口不 resize，用 padding(bottom=imeHeightDp) 把内容推到键盘上方
+            // imePadding() 把整列内容随系统键盘动画逐帧平滑地推到键盘上方，不再有中间跳变
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = imeHeightDp)
+                    .imePadding()
             ) {
                 // 终端画面：weight(1f) 占满虚拟键盘以上的全部剩余空间
                 Box(
@@ -189,26 +186,34 @@ fun TerminalScreen(
                 }
 
                 // 虚拟键盘：系统键盘可见时才显示，紧贴终端下方 / 系统键盘上方
-                if (imeVisible && vkeyLayout.hasAnyKey) {
-                    HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
-                    DynamicVirtualKeyboard(
-                        layout = vkeyLayout,
-                        modifier = Modifier.fillMaxWidth(),
-                        ctrlPressed  = ctrlPressed,
-                        altPressed   = altPressed,
-                        shiftPressed = shiftPressed,
-                        onKey = { config ->
-                            viewModel.dispatchVKey(
-                                config        = config,
-                                ctrlActive    = ctrlPressed,
-                                altActive     = altPressed,
-                                onToggleCtrl  = { ctrlPressed  = !ctrlPressed;  altPressed  = false; shiftPressed = false },
-                                onToggleAlt   = { altPressed   = !altPressed;   ctrlPressed = false; shiftPressed = false },
-                                onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
-                                onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
-                            )
-                        }
-                    )
+                // 用 AnimatedVisibility 代替生硬的 if，让键盘行的出现/消失也有过渡，
+                // 避免和 imePadding() 的动画不同步造成的跳变
+                AnimatedVisibility(
+                    visible = imeVisible && vkeyLayout.hasAnyKey,
+                    enter = fadeIn(tween(150)) + expandVertically(tween(150)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(120))
+                ) {
+                    Column {
+                        HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+                        DynamicVirtualKeyboard(
+                            layout = vkeyLayout,
+                            modifier = Modifier.fillMaxWidth(),
+                            ctrlPressed  = ctrlPressed,
+                            altPressed   = altPressed,
+                            shiftPressed = shiftPressed,
+                            onKey = { config ->
+                                viewModel.dispatchVKey(
+                                    config        = config,
+                                    ctrlActive    = ctrlPressed,
+                                    altActive     = altPressed,
+                                    onToggleCtrl  = { ctrlPressed  = !ctrlPressed;  altPressed  = false; shiftPressed = false },
+                                    onToggleAlt   = { altPressed   = !altPressed;   ctrlPressed = false; shiftPressed = false },
+                                    onToggleShift = { shiftPressed = !shiftPressed; ctrlPressed = false; altPressed   = false },
+                                    onShowKeyboard = { focusRequester.requestFocus(); keyboardController?.show() }
+                                )
+                            }
+                        )
+                    }
                 }
 
                 // 隐藏输入框：始终挂载，保证 focusRequester 随时有效

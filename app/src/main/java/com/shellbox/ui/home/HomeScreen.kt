@@ -577,15 +577,6 @@ private fun ServerCard(
                 Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error,
                     modifier = Modifier.size(18.dp))
             }
-
-            // Connect button
-            FilledIconButton(
-                onClick = onConnect,
-                modifier = Modifier.size(36.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = Blue40)
-            ) {
-                Icon(Icons.Filled.ChevronRight, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            }
         }
     }
 
