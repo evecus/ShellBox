@@ -77,7 +77,6 @@ fun TerminalScreen(
     val SENTINEL = "\u200B"
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))) }
 
-    val titleText = uiState.activeTab?.label ?: "Terminal"
     val isDisconnected = uiState.activeTab?.isDisconnected == true
 
     Scaffold(
@@ -86,12 +85,12 @@ fun TerminalScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Text(
-                            titleText,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                        TerminalTabRow(
+                            tabs = uiState.tabs,
+                            activeIndex = uiState.activeTabIndex,
+                            onSelectTab = viewModel::selectTab,
+                            onCloseTab = viewModel::closeTab,
+                            onAddTab = { showNewTerminalSheet = true }
                         )
                     },
                     navigationIcon = {
@@ -109,13 +108,6 @@ fun TerminalScreen(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-                )
-                TerminalTabRow(
-                    tabs = uiState.tabs,
-                    activeIndex = uiState.activeTabIndex,
-                    onSelectTab = viewModel::selectTab,
-                    onCloseTab = viewModel::closeTab,
-                    onAddTab = { showNewTerminalSheet = true }
                 )
                 HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
             }
