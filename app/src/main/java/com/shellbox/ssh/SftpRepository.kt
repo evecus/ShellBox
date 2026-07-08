@@ -7,12 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.sftp.RemoteResourceInfo
 import net.schmizz.sshj.sftp.SFTPClient
-import net.schmizz.sshj.xfer.InMemoryDestFile
+import net.schmizz.sshj.xfer.FileSystemFile
 import net.schmizz.sshj.xfer.InMemorySourceFile
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
-import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -139,6 +138,10 @@ class SftpRepository @Inject constructor(
      * Downloads [remotePath] into the app's external files directory (no storage
      * permission required) under `downloads/<fileName>`, returning the local [File].
      * Overwrites any previous download with the same name.
+     *
+     * Progress is reported before/after rather than byte-by-byte: sshj's streaming
+     * progress hooks vary across versions, while [FileSystemFile] (writing straight
+     * to disk) is a stable, always-correct destination implementation.
      */
     suspend fun downloadToAppStorage(
         sftp: SFTPClient,
@@ -151,28 +154,10 @@ class SftpRepository @Inject constructor(
             val downloadsDir = File(context.getExternalFilesDir(null), "downloads").apply { mkdirs() }
             val destFile = File(downloadsDir, fileName)
 
-            val dest = object : InMemoryDestFile() {
-                private var written = 0L
-                override fun getOutputStream(): OutputStream {
-                    val raw = destFile.outputStream()
-                    return object : OutputStream() {
-                        override fun write(b: Int) {
-                            raw.write(b)
-                            written += 1
-                            onProgress(written, totalSize)
-                        }
-                        override fun write(b: ByteArray, off: Int, len: Int) {
-                            raw.write(b, off, len)
-                            written += len
-                            onProgress(written, totalSize)
-                        }
-                        override fun close() = raw.close()
-                        override fun flush() = raw.flush()
-                    }
-                }
-            }
+            onProgress(0L, totalSize)
+            sftp.get(remotePath, FileSystemFile(destFile))
+            onProgress(totalSize, totalSize)
 
-            sftp.get(remotePath, dest)
             SftpOpResult.Success(destFile)
         } catch (e: Exception) {
             SftpOpResult.Error(e.message ?: "下载失败")
