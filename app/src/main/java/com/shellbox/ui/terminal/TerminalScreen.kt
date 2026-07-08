@@ -10,8 +10,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -45,6 +47,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.shellbox.data.model.Server
 import com.shellbox.ui.theme.Blue40
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -58,6 +61,7 @@ fun TerminalScreen(
     var ctrlPressed  by remember { mutableStateOf(false) }
     var altPressed   by remember { mutableStateOf(false) }
     var shiftPressed by remember { mutableStateOf(false) }
+    var showNewTerminalSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
@@ -106,14 +110,13 @@ fun TerminalScreen(
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
-                if (uiState.tabs.size > 1) {
-                    TerminalTabRow(
-                        tabs = uiState.tabs,
-                        activeIndex = uiState.activeTabIndex,
-                        onSelectTab = viewModel::selectTab,
-                        onCloseTab = viewModel::closeTab
-                    )
-                }
+                TerminalTabRow(
+                    tabs = uiState.tabs,
+                    activeIndex = uiState.activeTabIndex,
+                    onSelectTab = viewModel::selectTab,
+                    onCloseTab = viewModel::closeTab,
+                    onAddTab = { showNewTerminalSheet = true }
+                )
                 HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
             }
         },
@@ -332,6 +335,17 @@ fun TerminalScreen(
             }
         }
     }
+
+    if (showNewTerminalSheet) {
+        NewTerminalSheet(
+            servers = viewModel.servers.collectAsState().value,
+            onDismiss = { showNewTerminalSheet = false },
+            onSelectServer = { server ->
+                showNewTerminalSheet = false
+                viewModel.connectServer(server)
+            }
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -481,56 +495,78 @@ private fun TerminalTabRow(
     tabs: List<TabState>,
     activeIndex: Int,
     onSelectTab: (Int) -> Unit,
-    onCloseTab: (Int) -> Unit
+    onCloseTab: (Int) -> Unit,
+    onAddTab: () -> Unit
 ) {
-    LazyRow(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
             .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        itemsIndexed(tabs) { index, tab ->
-            val isActive = index == activeIndex
-            val bgColor by animateColorAsState(
-                if (isActive) Blue40 else Color(0xFFF0F0F3),
-                animationSpec = tween(200), label = "tab_color"
-            )
-            val textColor by animateColorAsState(
-                if (isActive) Color.White else Color.Black,
-                animationSpec = tween(200), label = "tab_text"
-            )
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(bgColor)
-                    .clickable { onSelectTab(index) }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (tab.isConnecting) {
-                    CircularProgressIndicator(modifier = Modifier.size(8.dp), color = textColor, strokeWidth = 1.5.dp)
-                } else {
-                    Box(
-                        modifier = Modifier.size(6.dp).clip(CircleShape)
-                            .background(if (tab.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336))
-                    )
-                }
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    tab.label, color = textColor, fontSize = 11.sp,
-                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 120.dp)
+        // tab 列表占据除 "+" 按钮外的全部宽度，超出部分横向滚动，
+        // 从而保证顶部栏整体长度不会被 tab 数量撑爆
+        LazyRow(
+            modifier = Modifier.weight(1f, fill = false),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            itemsIndexed(tabs) { index, tab ->
+                val isActive = index == activeIndex
+                val bgColor by animateColorAsState(
+                    if (isActive) Blue40 else Color(0xFFF0F0F3),
+                    animationSpec = tween(200), label = "tab_color"
                 )
-                Spacer(Modifier.width(5.dp))
-                Box(
-                    modifier = Modifier.size(14.dp).clip(CircleShape).clickable { onCloseTab(index) },
-                    contentAlignment = Alignment.Center
+                val textColor by animateColorAsState(
+                    if (isActive) Color.White else Color.Black,
+                    animationSpec = tween(200), label = "tab_text"
+                )
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(bgColor)
+                        .clickable { onSelectTab(index) }
+                        .padding(start = 10.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Close, null, tint = textColor.copy(alpha = 0.7f), modifier = Modifier.size(10.dp))
+                    if (tab.isConnecting) {
+                        CircularProgressIndicator(modifier = Modifier.size(8.dp), color = textColor, strokeWidth = 1.5.dp)
+                    } else {
+                        Box(
+                            modifier = Modifier.size(6.dp).clip(CircleShape)
+                                .background(if (tab.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336))
+                        )
+                    }
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        tab.label, color = textColor, fontSize = 11.sp,
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 100.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    // 关闭按钮：与服务器名/主机名组成一个整体，点击清除该连接
+                    Box(
+                        modifier = Modifier.size(16.dp).clip(CircleShape).clickable { onCloseTab(index) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Close, contentDescription = "关闭连接", tint = textColor.copy(alpha = 0.7f), modifier = Modifier.size(11.dp))
+                    }
                 }
             }
+        }
+
+        // "+" 新建终端按钮：固定在最右侧，不随 tab 列表滚动
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .clip(CircleShape)
+                .background(Color(0xFFF0F0F3))
+                .clickable(onClick = onAddTab),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "新建终端", tint = Color.Black, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -576,6 +612,97 @@ private fun EmptyTerminalPlaceholder(onBack: () -> Unit) {
             Text("没有活跃的连接", style = MaterialTheme.typography.titleMedium, color = Color.Black)
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = onBack) { Text("返回主页") }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 新建终端弹窗：展示已保存的服务器列表，点击某一项即新建一个终端连接
+// ---------------------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewTerminalSheet(
+    servers: List<Server>,
+    onDismiss: () -> Unit,
+    onSelectServer: (Server) -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Text(
+                "新建终端",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = Color.Black,
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+            if (servers.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("暂无已保存的服务器", color = Color(0xFF999999))
+                }
+            } else {
+                LazyColumnServerList(servers = servers, onSelectServer = onSelectServer)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LazyColumnServerList(
+    servers: List<Server>,
+    onSelectServer: (Server) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.heightIn(max = 420.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        items(servers, key = { it.id }) { server ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelectServer(server) }
+                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Blue40.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Computer, null, tint = Blue40, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        server.name,
+                        color = Color.Black,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${server.username}@${server.host}:${server.port}",
+                        color = Color(0xFF999999),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

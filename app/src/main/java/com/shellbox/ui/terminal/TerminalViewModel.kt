@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shellbox.data.model.QuickConnect
 import com.shellbox.data.model.Server
+import com.shellbox.data.repository.ServerRepository
 import com.shellbox.ssh.SshManager
 import com.shellbox.ssh.SshResult
 import com.shellbox.ssh.SshSession
@@ -42,11 +43,16 @@ data class TerminalUiState(
 
 @HiltViewModel
 class TerminalViewModel @Inject constructor(
-    private val sshManager: SshManager
+    private val sshManager: SshManager,
+    private val serverRepository: ServerRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TerminalUiState())
     val uiState: StateFlow<TerminalUiState> = _uiState.asStateFlow()
+
+    /** 已保存的服务器列表，供"新建终端"弹窗展示 */
+    val servers: StateFlow<List<Server>> = serverRepository.getAllServers()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Map tabId -> bridge (holds TerminalEmulator + SSH streams) */
     private val bridges = mutableMapOf<String, SshTerminalBridge>()
