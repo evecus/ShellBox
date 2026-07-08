@@ -19,12 +19,13 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustNothing">
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
 
         <!-- Exposes files downloaded via SFTP (stored under app-external-files/downloads)
              as content:// URIs so they can be opened with other apps. -->

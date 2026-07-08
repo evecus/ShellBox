@@ -2,6 +2,7 @@ package com.shellbox.ui.terminal
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -175,7 +176,17 @@ fun TerminalScreen(
             }
         }
 
-        val imeHeightDp = with(density) { imeHeightPx.floatValue.toDp() }
+        // 兜底动画层：绝大多数场景下 imeHeightPx 已经由系统逐帧驱动，这里的
+        // animateFloatAsState 在值连续变化时几乎不引入额外延迟（每帧目标值都紧跟
+        // 系统真实值，动画只是在相邻两帧间做极短插值）；但对于极少数不走
+        // WindowInsetsAnimation 分发路径的场景（例如某些输入法切换、系统直接跳变
+        // insets 而不广播动画），可以避免内容整体瞬间跳变，仍保留一点平滑过渡。
+        val animatedImeHeightPx by animateFloatAsState(
+            targetValue = imeHeightPx.floatValue,
+            animationSpec = tween(durationMillis = 180),
+            label = "ime_height"
+        )
+        val imeHeightDp = with(density) { animatedImeHeightPx.toDp() }
 
         // ── draw-phase 实时渲染修复 ─────────────────────────────────────────────
         // view.postInvalidate() 在 API 29+ 只重播 RenderNode 缓存，不重新执行 drawBehind。
