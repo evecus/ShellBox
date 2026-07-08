@@ -17,8 +17,8 @@ android {
         applicationId = "com.shellbox"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.0.2"
+        versionCode = 1
+        versionName = "test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
