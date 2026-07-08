@@ -2,6 +2,12 @@ name: build
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号，例如 v1.0.1'
+        required: true
+        type: string
+
 
 jobs:
   build:
@@ -28,6 +34,18 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Set version in build.gradle.kts
+        run: |
+          RAW_VERSION="${{ github.event.inputs.version }}"
+          VERSION_NAME="${RAW_VERSION#v}"
+          VERSION_CODE="${VERSION_NAME//./}"
+          echo "VERSION_NAME=$VERSION_NAME"
+          echo "VERSION_CODE=$VERSION_CODE"
+          sed -i "s/versionCode = [0-9]*/versionCode = $VERSION_CODE/" app/build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"$VERSION_NAME\"/" app/build.gradle.kts
+          grep -E "versionCode|versionName" app/build.gradle.kts
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
@@ -49,7 +67,7 @@ jobs:
           mkdir -p artifacts
           cp app/build/outputs/apk/release/app-release.apk \
              artifacts/ShellBox-arm64.apk
-          echo "APK size: $(wc -c < artifacts/ShellBox-${{ github.ref_name }}.apk) bytes"
+          echo "APK size: $(wc -c < artifacts/ShellBox-arm64.apk) bytes"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -61,8 +79,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ShellBox v1.0.1
-          tag_name: v1.0.1
+          name: ShellBox ${{ github.event.inputs.version }}
+          tag_name: ${{ github.event.inputs.version }}
           files: artifacts/ShellBox-*.apk
           body: |
             ## ShellBox-arm64.apk
