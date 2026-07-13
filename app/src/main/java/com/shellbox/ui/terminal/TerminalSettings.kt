@@ -51,6 +51,19 @@ class TerminalSettingsStore(context: Context) {
     )
     val font = _font.asStateFlow()
 
+    // Whether the user has opted in to the foreground "keep connections alive in background"
+    // service. Off by default — starting a foreground service (and its persistent notification)
+    // is something the user should explicitly choose, not something ShellBox does silently.
+    private val _keepAliveServiceEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_KEEP_ALIVE_SERVICE, false)
+    )
+    val keepAliveServiceEnabled = _keepAliveServiceEnabled.asStateFlow()
+
+    fun setKeepAliveServiceEnabled(enabled: Boolean) {
+        _keepAliveServiceEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_KEEP_ALIVE_SERVICE, enabled).apply()
+    }
+
     fun setFontSize(size: Float) {
         val clamped = size.coerceIn(TerminalFontDefaults.MIN_SIZE, TerminalFontDefaults.MAX_SIZE)
         _fontSize.value = clamped
@@ -65,6 +78,7 @@ class TerminalSettingsStore(context: Context) {
     companion object {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_FONT = "font_id"
+        private const val KEY_KEEP_ALIVE_SERVICE = "keep_alive_service_enabled"
 
         @Volatile
         private var instance: TerminalSettingsStore? = null

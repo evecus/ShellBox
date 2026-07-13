@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.shellbox.data.model.AuthType
+import com.shellbox.data.model.PortForwardRule
 import com.shellbox.data.model.PrivateKeySource
 import com.shellbox.data.model.Server
 import com.shellbox.ui.home.AuthTypeToggle
@@ -23,6 +24,7 @@ import com.shellbox.ui.home.PrivateKeyInput
 import com.shellbox.ui.home.ShellTextField
 import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
+import com.shellbox.ui.util.MaxFormContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +45,7 @@ fun AddServerScreen(
     var keyPassphrase by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
+    var portForwardRules by remember { mutableStateOf<List<PortForwardRule>>(emptyList()) }
 
     // Load existing server data for editing
     LaunchedEffect(editServerId) {
@@ -58,6 +61,7 @@ fun AddServerScreen(
                 privateKeySource = it.privateKeySource
                 privateKeyValue = it.privateKeyValue
                 keyPassphrase = it.privateKeyPassphrase
+                portForwardRules = it.portForwardRules
             }
         }
     }
@@ -84,14 +88,20 @@ fun AddServerScreen(
         },
         containerColor = Color.White
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(padding),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .widthIn(max = MaxFormContentWidth),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // Section: 基本信息
             SectionHeader(icon = Icons.Outlined.Info, title = "基本信息")
 
@@ -175,6 +185,15 @@ fun AddServerScreen(
 
             Spacer(Modifier.height(8.dp))
 
+            // Section: 端口转发
+            SectionHeader(icon = Icons.Outlined.SettingsEthernet, title = "端口转发")
+            PortForwardSection(
+                rules = portForwardRules,
+                onRulesChange = { portForwardRules = it }
+            )
+
+            Spacer(Modifier.height(8.dp))
+
             // Save Button
             Button(
                 onClick = {
@@ -190,7 +209,8 @@ fun AddServerScreen(
                         privateKeySource = privateKeySource,
                         privateKeyValue = if (privateKeySource == PrivateKeySource.TEXT)
                             privateKeyValue.trim() else privateKeyValue,
-                        privateKeyPassphrase = keyPassphrase
+                        privateKeyPassphrase = keyPassphrase,
+                        portForwardRules = portForwardRules
                     )
                     viewModel.saveServer(server) {
                         isLoading = false
@@ -225,6 +245,7 @@ fun AddServerScreen(
             }
 
             Spacer(Modifier.height(20.dp))
+            }
         }
     }
 }

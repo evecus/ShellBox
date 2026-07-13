@@ -43,11 +43,16 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onOpenKeySettings: () -> Unit = {},
+    onOpenKnownHosts: () -> Unit = {}
+) {
     val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
     val fontSize by settingsStore.fontSize.collectAsState()
     val selectedFont by settingsStore.font.collectAsState()
+    val keepAliveEnabled by settingsStore.keepAliveServiceEnabled.collectAsState()
 
     // Local slider state lets the thumb move smoothly; committed on release.
     var sliderValue by remember(fontSize) { mutableFloatStateOf(fontSize) }
@@ -68,10 +73,14 @@ fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
         },
         containerColor = Color.White
     ) { padding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.TopCenter
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .widthIn(max = com.shellbox.ui.util.MaxFormContentWidth)
                 .padding(horizontal = 20.dp)
         ) {
             Spacer(Modifier.height(8.dp))
@@ -183,6 +192,81 @@ fun SettingsScreen(onBack: () -> Unit, onOpenKeySettings: () -> Unit = {}) {
             }
 
             Spacer(Modifier.height(24.dp))
+
+            // ---------------------------------------------------------
+            // 连接与安全
+            // ---------------------------------------------------------
+            SectionHeader("连接与安全")
+            Spacer(Modifier.height(10.dp))
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Outlined.CloudSync,
+                            contentDescription = null,
+                            tint = Blue40,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("后台保活", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
+                            Text(
+                                "切到后台或锁屏时继续保持 SSH 连接（会常驻通知栏）",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        Switch(
+                            checked = keepAliveEnabled,
+                            onCheckedChange = { settingsStore.setKeepAliveServiceEnabled(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Blue40)
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFFE5E5EA))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onOpenKnownHosts)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            androidx.compose.material.icons.Icons.Outlined.Shield,
+                            contentDescription = null,
+                            tint = Blue40,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("主机密钥管理", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
+                            Text("查看或清除已记录的服务器主机密钥指纹", fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
         }
     }
 }

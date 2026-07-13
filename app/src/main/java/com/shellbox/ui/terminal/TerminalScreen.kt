@@ -313,8 +313,17 @@ fun TerminalScreen(
                 )
             }
 
-            // 右下角悬浮重连按钮（仅断开时显示）
-            if (isDisconnected) {
+            // 自动重连中提示条（顶部，跟随退避重试）
+            val activeTabForReconnect = uiState.activeTab
+            if (activeTabForReconnect?.isAutoReconnecting == true) {
+                AutoReconnectBanner(
+                    attempt = activeTabForReconnect.reconnectAttempt,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            }
+
+            // 右下角悬浮重连按钮：自动重连耗尽次数后（或用户已放弃自动重连）才显示手动重连
+            if (isDisconnected && activeTabForReconnect?.isAutoReconnecting != true) {
                 ReconnectFab(
                     onClick = { viewModel.reconnect(uiState.activeTabIndex) },
                     modifier = Modifier
@@ -336,6 +345,37 @@ fun TerminalScreen(
                 showNewTerminalSheet = false
                 viewModel.connectServer(server)
             }
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 自动重连提示条（顶部，展示当前重试次数）
+// ---------------------------------------------------------------------------
+@Composable
+private fun AutoReconnectBanner(
+    attempt: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .padding(top = 12.dp)
+            .shadow(4.dp, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp))
+            .background(Blue40)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.material3.CircularProgressIndicator(
+            modifier = Modifier.size(14.dp),
+            strokeWidth = 2.dp,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "连接已断开，正在重连…（第 $attempt 次）",
+            color = Color.White,
+            fontSize = 13.sp
         )
     }
 }

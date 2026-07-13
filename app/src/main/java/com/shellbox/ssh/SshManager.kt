@@ -1,18 +1,20 @@
 package com.shellbox.ssh
 
 import android.content.Context
+import com.shellbox.data.db.KnownHostDao
 import com.shellbox.data.model.AuthType
 import com.shellbox.data.model.PrivateKeySource
 import com.shellbox.data.model.Server
 import com.shellbox.data.model.QuickConnect
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import net.schmizz.sshj.AndroidConfig
 import net.schmizz.sshj.SSHClient
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import net.schmizz.sshj.userauth.keyprovider.KeyProvider
 import net.schmizz.sshj.userauth.password.PasswordUtils
 import net.schmizz.sshj.connection.channel.direct.Session as SshJSession
@@ -21,6 +23,9 @@ import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** How many seconds of silence before sshj sends an SSH-level keep-alive ping to the server. */
+private const val KEEP_ALIVE_INTERVAL_SECONDS = 15
+
 data class SshSession(
     val id: String,
     val label: String,
@@ -28,7 +33,8 @@ data class SshSession(
     val username: String,
     val client: SSHClient,
     val sshJSession: SshJSession,          // keep reference for resize
-    val shell: SshJSession.Shell
+    val shell: SshJSession.Shell,
+    val portForwardManager: PortForwardManager
 ) {
     val inputStream: InputStream get() = shell.inputStream
     val outputStream: OutputStream get() = shell.outputStream
@@ -79,11 +85,16 @@ sealed class SftpOpenResult {
 
 @Singleton
 class SshManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val knownHostDao: KnownHostDao
 ) {
 
     private val _sessions = MutableStateFlow<Map<String, SshSession>>(emptyMap())
     val sessions: StateFlow<Map<String, SshSession>> = _sessions
+
+    /** Independent lifecycle from any single screen's ViewModel — port forwarders must keep
+     *  running as long as their SSH connection is alive, not just while a Compose screen is open. */
+    private val forwardingScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Resolves the raw private key PEM/OpenSSH text regardless of whether the
@@ -114,6 +125,10 @@ class SshManager @Inject constructor(
      * Creates a new [SSHClient], connects to the given host/port, and authenticates
      * using the given credentials. Shared by the shell, connectivity-test, and SFTP
      * code paths so auth logic (password vs. private key resolution) lives in one place.
+     *
+     * Host identity is verified via [KnownHostsVerifier] (TOFU model) instead of accepting
+     * every key unconditionally. On a fingerprint mismatch, connect() throws with a clear
+     * explanation rather than silently proceeding — see [KnownHostsVerifier.VerifyOutcome.Mismatch].
      */
     private fun connectAndAuthenticate(
         host: String,
@@ -136,8 +151,19 @@ class SshManager @Inject constructor(
             client.connectTimeout = timeoutMs
             client.timeout = timeoutMs
         }
-        client.addHostKeyVerifier(PromiscuousVerifier())
-        client.connect(host, port)
+
+        val verifier = KnownHostsVerifier(knownHostDao)
+        client.addHostKeyVerifier(verifier)
+
+        // Send an SSH-level keep-alive ping on idle connections so NAT/firewall timeouts
+        // don't silently drop the session. Must be set before connect().
+        client.connection.keepAlive.keepAliveInterval = KEEP_ALIVE_INTERVAL_SECONDS
+
+        try {
+            client.connect(host, port)
+        } catch (e: Exception) {
+            throw resolveHostKeyError(verifier, host, e)
+        }
 
         when (authType) {
             AuthType.PASSWORD -> client.authPassword(username, password)
@@ -148,6 +174,16 @@ class SshManager @Inject constructor(
             }
         }
         return client
+    }
+
+    /** Turns a rejected/failed host-key verification into a clear, actionable exception message. */
+    private fun resolveHostKeyError(verifier: KnownHostsVerifier, host: String, cause: Exception): Exception {
+        val outcome = verifier.lastOutcome
+        return if (outcome is KnownHostsVerifier.VerifyOutcome.Mismatch) {
+            java.io.IOException(outcome.toUserMessage(host), cause)
+        } else {
+            cause
+        }
     }
 
     private fun connectAndAuthenticate(server: Server, timeoutMs: Int? = null): SSHClient =
@@ -191,6 +227,15 @@ class SshManager @Inject constructor(
                 )
                 val shell = session.startShell()
 
+                val portForwardManager = PortForwardManager(client, forwardingScope)
+                val forwardResults = portForwardManager.startAll(server.portForwardRules)
+                forwardResults.forEach { (ruleId, result) ->
+                    if (result is PortForwardStartResult.Error) {
+                        val rule = server.portForwardRules.find { it.id == ruleId }
+                        android.util.Log.w("SshManager", "端口转发未能启动 (${rule?.label}): ${result.message}")
+                    }
+                }
+
                 val sshSession = SshSession(
                     id = java.util.UUID.randomUUID().toString(),
                     label = "${server.username}@${server.host}",
@@ -198,7 +243,8 @@ class SshManager @Inject constructor(
                     username = server.username,
                     client = client,
                     sshJSession = session,
-                    shell = shell
+                    shell = shell,
+                    portForwardManager = portForwardManager
                 )
 
                 _sessions.value = _sessions.value + (sshSession.id to sshSession)
@@ -301,6 +347,7 @@ class SshManager @Inject constructor(
     fun disconnect(sessionId: String) {
         val session = _sessions.value[sessionId] ?: return
         try {
+            session.portForwardManager.stopAll()
             session.shell.close()
             session.sshJSession.close()
             session.client.disconnect()

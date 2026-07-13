@@ -173,7 +173,12 @@ fun SftpScreen(
                     }
                 )
                 else -> {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = com.shellbox.ui.util.MaxFormContentWidth * 1.6f)
+                    ) {
                         if (state.currentPath != "/") {
                             UpRow(onClick = { viewModel.navigateUp() })
                         }
@@ -203,6 +208,7 @@ fun SftpScreen(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

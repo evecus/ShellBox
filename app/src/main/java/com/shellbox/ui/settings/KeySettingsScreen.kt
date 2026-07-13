@@ -65,7 +65,8 @@ fun KeySettingsScreen(onBack: () -> Unit) {
         },
         containerColor = Color(0xFFF5F5F7)
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        Column(modifier = Modifier.fillMaxSize().widthIn(max = com.shellbox.ui.util.MaxFormContentWidth * 1.4f)) {
 
             // Tab 切换
             TabRow(
@@ -107,6 +108,7 @@ fun KeySettingsScreen(onBack: () -> Unit) {
                     store.setLayout(newLayout)
                 }
             )
+        }
         }
     }
 }

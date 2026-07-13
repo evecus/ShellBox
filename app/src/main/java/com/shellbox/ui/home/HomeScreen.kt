@@ -33,6 +33,9 @@ import com.shellbox.ssh.TestConnectionResult
 import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
 import com.shellbox.ui.theme.Blue95
+import com.shellbox.ui.util.LocalWindowWidthSizeClass
+import com.shellbox.ui.util.MaxFormContentWidth
+import com.shellbox.ui.util.gridColumnsFor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,49 +108,69 @@ fun HomeScreen(
         },
         containerColor = Color.White
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
-        ) {
-            // Saved Servers Section
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "已保存的服务器",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (servers.isNotEmpty()) {
-                        Badge(containerColor = Blue40) {
-                            Text("${servers.size}", color = Color.White, fontSize = 10.sp)
-                        }
+        val widthSizeClass = LocalWindowWidthSizeClass.current
+        val columns = gridColumnsFor(widthSizeClass)
+
+        if (columns == 1) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
+            ) {
+                item {
+                    ServerListHeader(count = servers.size)
+                }
+                if (servers.isEmpty()) {
+                    item { EmptyServersHint(onAdd = { showQuickConnectDialog = true }) }
+                } else {
+                    items(servers, key = { it.id }) { server ->
+                        ServerCard(
+                            server = server,
+                            onConnect = {
+                                viewModel.markUsed(server.id)
+                                onConnectServer(server)
+                            },
+                            onEdit = { onEditServer(server) },
+                            onDelete = { viewModel.deleteServer(server) },
+                            onOpenFiles = { onOpenFiles(server) }
+                        )
                     }
                 }
             }
-
-            if (servers.isEmpty()) {
-                item { EmptyServersHint(onAdd = { showQuickConnectDialog = true }) }
-            } else {
-                items(servers, key = { it.id }) { server ->
-                    ServerCard(
-                        server = server,
-                        onConnect = {
-                            viewModel.markUsed(server.id)
-                            onConnectServer(server)
-                        },
-                        onEdit = { onEditServer(server) },
-                        onDelete = { viewModel.deleteServer(server) },
-                        onOpenFiles = { onOpenFiles(server) }
-                    )
+        } else {
+            // Tablet / expanded window: server cards flow into a multi-column grid
+            // instead of a single narrow list, so wide screens aren't wasted on
+            // one skinny stripe of cards down the left edge.
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(columns),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    ServerListHeader(count = servers.size)
+                }
+                if (servers.isEmpty()) {
+                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        EmptyServersHint(onAdd = { showQuickConnectDialog = true })
+                    }
+                } else {
+                    items(servers, key = { it.id }) { server ->
+                        ServerCard(
+                            server = server,
+                            onConnect = {
+                                viewModel.markUsed(server.id)
+                                onConnectServer(server)
+                            },
+                            onEdit = { onEditServer(server) },
+                            onDelete = { viewModel.deleteServer(server) },
+                            onOpenFiles = { onOpenFiles(server) }
+                        )
+                    }
                 }
             }
         }
@@ -169,6 +192,29 @@ fun HomeScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ServerListHeader(count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "已保存的服务器",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.width(8.dp))
+        if (count > 0) {
+            Badge(containerColor = Blue40) {
+                Text("$count", color = Color.White, fontSize = 10.sp)
+            }
+        }
     }
 }
 

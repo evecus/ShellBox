@@ -23,7 +23,9 @@ data class Server(
     val privateKeyValue: String = "",
     val privateKeyPassphrase: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-    val lastUsedAt: Long = 0
+    val lastUsedAt: Long = 0,
+    // Port-forwarding rules to establish automatically once this server connects.
+    val portForwardRules: List<PortForwardRule> = emptyList()
 ) : Parcelable
 
 @Parcelize

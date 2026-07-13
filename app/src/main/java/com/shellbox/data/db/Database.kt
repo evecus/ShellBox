@@ -1,8 +1,13 @@
 package com.shellbox.data.db
 
 import androidx.room.*
+import com.shellbox.data.model.KnownHost
+import com.shellbox.data.model.PortForwardRule
 import com.shellbox.data.model.Server
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 @Dao
 interface ServerDao {
@@ -25,10 +30,26 @@ interface ServerDao {
     suspend fun updateLastUsed(id: Long, time: Long = System.currentTimeMillis())
 }
 
-@Database(entities = [Server::class], version = 2, exportSchema = false)
+@Dao
+interface KnownHostDao {
+    @Query("SELECT * FROM known_hosts WHERE hostPort = :hostPort")
+    suspend fun get(hostPort: String): KnownHost?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(knownHost: KnownHost)
+
+    @Query("DELETE FROM known_hosts WHERE hostPort = :hostPort")
+    suspend fun delete(hostPort: String)
+
+    @Query("SELECT * FROM known_hosts ORDER BY firstSeenAt DESC")
+    fun getAll(): Flow<List<KnownHost>>
+}
+
+@Database(entities = [Server::class, KnownHost::class], version = 3, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class ShellBoxDatabase : RoomDatabase() {
     abstract fun serverDao(): ServerDao
+    abstract fun knownHostDao(): KnownHostDao
 }
 
 class Converters {
@@ -45,4 +66,16 @@ class Converters {
     @TypeConverter
     fun toPrivateKeySource(value: String): com.shellbox.data.model.PrivateKeySource =
         com.shellbox.data.model.PrivateKeySource.valueOf(value)
+
+    @TypeConverter
+    fun fromPortForwardRules(value: List<PortForwardRule>): String =
+        if (value.isEmpty()) "" else Json.encodeToString(value)
+
+    @TypeConverter
+    fun toPortForwardRules(value: String): List<PortForwardRule> =
+        if (value.isBlank()) emptyList() else try {
+            Json.decodeFromString(value)
+        } catch (_: Exception) {
+            emptyList()
+        }
 }

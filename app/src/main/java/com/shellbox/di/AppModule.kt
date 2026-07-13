@@ -2,6 +2,7 @@ package com.shellbox.di
 
 import android.content.Context
 import androidx.room.Room
+import com.shellbox.data.db.KnownHostDao
 import com.shellbox.data.db.ServerDao
 import com.shellbox.data.db.ShellBoxDatabase
 import dagger.Module
@@ -24,4 +25,7 @@ object AppModule {
 
     @Provides
     fun provideServerDao(db: ShellBoxDatabase): ServerDao = db.serverDao()
+
+    @Provides
+    fun provideKnownHostDao(db: ShellBoxDatabase): KnownHostDao = db.knownHostDao()
 }

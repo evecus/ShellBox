@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.kotlin.serialization)
     id("kotlin-parcelize")
 }
 
@@ -105,5 +106,8 @@ dependencies {
     implementation(libs.spongycastle.core)
     implementation(libs.spongycastle.prov)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.security.crypto)
+    implementation(libs.material3.window.size)
+    implementation(libs.kotlinx.serialization.json)
     debugImplementation(libs.compose.ui.tooling)
 }
