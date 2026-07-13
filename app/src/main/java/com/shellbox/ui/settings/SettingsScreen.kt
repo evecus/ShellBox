@@ -15,6 +15,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -213,7 +215,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            androidx.compose.material.icons.Icons.Outlined.CloudSync,
+                            Icons.Outlined.Sync,
                             contentDescription = null,
                             tint = Blue40,
                             modifier = Modifier.size(22.dp)
@@ -245,7 +247,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            androidx.compose.material.icons.Icons.Outlined.Shield,
+                            Icons.Outlined.Lock,
                             contentDescription = null,
                             tint = Blue40,
                             modifier = Modifier.size(22.dp)

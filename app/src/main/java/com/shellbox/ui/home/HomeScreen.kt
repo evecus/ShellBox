@@ -159,7 +159,7 @@ fun HomeScreen(
                         EmptyServersHint(onAdd = { showQuickConnectDialog = true })
                     }
                 } else {
-                    items(servers, key = { it.id }) { server ->
+                    androidx.compose.foundation.lazy.grid.items(servers, key = { it.id }) { server ->
                         ServerCard(
                             server = server,
                             onConnect = {

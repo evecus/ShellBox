@@ -99,14 +99,14 @@ class TerminalViewModel @Inject constructor(
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = "${quickConnect.username}@${quickConnect.host}"
         addTab(tabId, label, host = quickConnect.host, source = ConnectionSource.FromQuickConnect(quickConnect))
-        doConnect(tabId) { sshManager.connect(quickConnect, termCols, termRows) }
+        doConnect(tabId, connectFn = { sshManager.connect(quickConnect, termCols, termRows) })
     }
 
     fun connectServer(server: Server) {
         val tabId = "tab_${System.currentTimeMillis()}"
         val label = server.name
         addTab(tabId, label, host = server.host, source = ConnectionSource.FromServer(server))
-        doConnect(tabId) { sshManager.connect(server, termCols, termRows) }
+        doConnect(tabId, connectFn = { sshManager.connect(server, termCols, termRows) })
     }
 
     private fun addTab(tabId: String, label: String, host: String = "", source: ConnectionSource? = null) {

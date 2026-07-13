@@ -8,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Key
-import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -79,7 +79,7 @@ fun KnownHostsScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Icon(Icons.Outlined.Shield, contentDescription = null, tint = Blue40, modifier = Modifier.size(18.dp))
+                Icon(Icons.Outlined.Lock, contentDescription = null, tint = Blue40, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     "ShellBox 会记录每台服务器首次连接时的主机密钥指纹。若某台服务器的指纹发生变化，连接会被自动拒绝以防范中间人攻击；如果这是预期的变更（如重装了系统），可以在这里删除旧记录后重新连接。",

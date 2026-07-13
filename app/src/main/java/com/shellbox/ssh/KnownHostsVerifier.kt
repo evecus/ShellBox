@@ -59,6 +59,19 @@ class KnownHostsVerifier(
         }
     }
 
+    /**
+     * Lets sshj negotiate a key-exchange algorithm that matches a key type we already
+     * have on record for this host (so a server with multiple host key types doesn't
+     * negotiate a fresh algorithm we haven't seen before). We only ever store one
+     * fingerprint per host:port, so this returns either that one key type or nothing.
+     */
+    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> {
+        val hostPort = "$hostname:$port"
+        return runBlocking {
+            knownHostDao.get(hostPort)?.keyType?.let { listOf(it) } ?: emptyList()
+        }
+    }
+
     companion object {
         /** SHA-256 fingerprint in the same "SHA256:base64" form `ssh-keygen -lf` prints. */
         fun fingerprintOf(key: PublicKey): String {
