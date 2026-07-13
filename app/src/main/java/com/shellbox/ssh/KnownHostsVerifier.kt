@@ -60,17 +60,20 @@ class KnownHostsVerifier(
     }
 
     /**
-     * Lets sshj negotiate a key-exchange algorithm that matches a key type we already
-     * have on record for this host (so a server with multiple host key types doesn't
-     * negotiate a fresh algorithm we haven't seen before). We only ever store one
-     * fingerprint per host:port, so this returns either that one key type or nothing.
+     * Optional sshj hook for algorithm-negotiation optimization — not used here.
+     *
+     * IMPORTANT: an earlier version of this method looked up the previously-recorded
+     * key type and returned it here, based on the (incorrect, unverified) assumption
+     * that this would help sshj negotiate a matching algorithm faster. In practice this
+     * broke the handshake entirely (every connection failed with "Broken transport;
+     * encountered EOF" — the server was rejecting a malformed KEX_INIT). The exact
+     * contract sshj expects from this hook (which algorithm-name format, when exactly
+     * it's called relative to KEX_INIT construction) isn't something I could verify
+     * from documentation alone, so returning an empty list — sshj's own default/no-op
+     * behavior — is the safe choice: it disables this optional optimization without
+     * risking transport-level corruption.
      */
-    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> {
-        val hostPort = "$hostname:$port"
-        return runBlocking {
-            knownHostDao.get(hostPort)?.keyType?.let { listOf(it) } ?: emptyList()
-        }
-    }
+    override fun findExistingAlgorithms(hostname: String, port: Int): List<String> = emptyList()
 
     companion object {
         /** SHA-256 fingerprint in the same "SHA256:base64" form `ssh-keygen -lf` prints. */
