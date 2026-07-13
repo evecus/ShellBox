@@ -155,15 +155,18 @@ class SshManager @Inject constructor(
         val verifier = KnownHostsVerifier(knownHostDao)
         client.addHostKeyVerifier(verifier)
 
-        // Send an SSH-level keep-alive ping on idle connections so NAT/firewall timeouts
-        // don't silently drop the session. Must be set before connect().
-        client.connection.keepAlive.keepAliveInterval = KEEP_ALIVE_INTERVAL_SECONDS
-
         try {
             client.connect(host, port)
         } catch (e: Exception) {
             throw resolveHostKeyError(verifier, host, e)
         }
+
+        // Send an SSH-level keep-alive ping on idle connections so NAT/firewall timeouts
+        // don't silently drop the session. Must be set AFTER connect() — touching
+        // client.connection before the transport is established can disturb sshj's
+        // internal handshake state machine (observed as "strict KEX violation:
+        // KEXINIT was not the first packet" / "Broken transport; encountered EOF").
+        client.connection.keepAlive.keepAliveInterval = KEEP_ALIVE_INTERVAL_SECONDS
 
         when (authType) {
             AuthType.PASSWORD -> client.authPassword(username, password)
