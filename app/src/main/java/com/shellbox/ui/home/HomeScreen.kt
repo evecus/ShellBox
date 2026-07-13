@@ -6,6 +6,10 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -142,8 +146,8 @@ fun HomeScreen(
             // Tablet / expanded window: server cards flow into a multi-column grid
             // instead of a single narrow list, so wide screens aren't wasted on
             // one skinny stripe of cards down the left edge.
-            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(columns),
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
@@ -151,15 +155,15 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     ServerListHeader(count = servers.size)
                 }
                 if (servers.isEmpty()) {
-                    item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         EmptyServersHint(onAdd = { showQuickConnectDialog = true })
                     }
                 } else {
-                    androidx.compose.foundation.lazy.grid.items(servers, key = { it.id }) { server ->
+                    gridItems(servers, key = { it.id }) { server ->
                         ServerCard(
                             server = server,
                             onConnect = {
