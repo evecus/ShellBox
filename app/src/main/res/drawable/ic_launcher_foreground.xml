@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle with blue gradient feel -->
+    <path
+        android:fillColor="#1A6CF0"
+        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"/>
+
+    <!-- Subtle inner glow -->
+    <path
+        android:fillColor="#264D8EF5"
+        android:pathData="M54,10 A44,44 0 1 1 53.9,10 Z"/>
+
+    <!-- Terminal window frame -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.15"
+        android:pathData="M22,30 Q22,26 26,26 L82,26 Q86,26 86,30 L86,78 Q86,82 82,82 L26,82 Q22,82 22,78 Z"/>
+
+    <!-- Terminal title bar -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.25"
+        android:pathData="M22,26 Q22,24 26,24 L82,24 Q86,24 86,26 L86,36 L22,36 Z"/>
+
+    <!-- Window control dots -->
+    <path
+        android:fillColor="#FF5F57"
+        android:pathData="M30,30 A2.5,2.5 0 1 1 29.9,30 Z"/>
+    <path
+        android:fillColor="#FFBD2E"
+        android:pathData="M37,30 A2.5,2.5 0 1 1 36.9,30 Z"/>
+    <path
+        android:fillColor="#28C840"
+        android:pathData="M44,30 A2.5,2.5 0 1 1 43.9,30 Z"/>
+
+    <!-- Prompt arrow ">" -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M29,46 L35,52 L29,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillType="nonZero"/>
+
+    <!-- Cursor line after prompt -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,52 L58,52"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"/>
+
+    <!-- Blinking cursor block -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M60,47 L65,47 L65,57 L60,57 Z"/>
+
+    <!-- Bottom lines (code lines) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.5"
+        android:pathData="M29,65 L55,65"/>
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.35"
+        android:pathData="M29,72 L45,72"/>
+
+</vector>
