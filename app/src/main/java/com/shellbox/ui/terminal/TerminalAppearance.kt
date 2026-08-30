@@ -106,7 +106,6 @@ object TerminalColorSchemes {
 
     /** Build a custom scheme from user-picked colors. */
     fun custom(bg: Long, fg: Long, cursor: Long): TerminalColorScheme {
-        // Selection = semi-transparent inverse-ish of background
         val selection = (0x55L shl 24) or (fg and 0x00FFFFFF)
         return TerminalColorScheme(
             id = CUSTOM_ID,
@@ -127,6 +126,14 @@ data class TerminalAppearance(
     val customBg: Long = 0xFF1C1C1C,
     val customFg: Long = 0xFFEEEEEC,
     val customCursor: Long = 0xFFEEEEEC,
+    /**
+     * When true, the terminal uses LIGHT/DARK according to the system UI mode
+     * (unless [schemeId] is custom). Manual preset selection is kept as a
+     * fallback for when this is turned off.
+     */
+    val followSystemTheme: Boolean = false,
+    /** When true, the app MaterialTheme also follows system dark mode. */
+    val appFollowSystemTheme: Boolean = false,
     val font: TerminalFont = TerminalFont.SYSTEM,
     val fontSize: Float = TerminalFontDefaults.DEFAULT_SIZE,
     /** Relative line-height multiplier applied on top of the font metrics. */
@@ -140,15 +147,30 @@ data class TerminalAppearance(
     /** Vibrate on terminal BEL character. */
     val bellVibrate: Boolean = true
 ) {
+    val isCustomScheme: Boolean
+        get() = schemeId == TerminalColorSchemes.CUSTOM_ID
+
+    /**
+     * Resolve the active color scheme for rendering.
+     * @param isSystemDark whether the system is currently in dark mode
+     */
+    fun resolvedScheme(isSystemDark: Boolean): TerminalColorScheme {
+        if (isCustomScheme) {
+            return TerminalColorSchemes.custom(customBg, customFg, customCursor)
+        }
+        if (followSystemTheme) {
+            return if (isSystemDark) TerminalColorSchemes.DARK else TerminalColorSchemes.LIGHT
+        }
+        return TerminalColorSchemes.byId(schemeId)
+    }
+
+    /** Convenience for UI that does not have system-dark context (defaults to stored scheme). */
     val scheme: TerminalColorScheme
-        get() = if (schemeId == TerminalColorSchemes.CUSTOM_ID) {
+        get() = if (isCustomScheme) {
             TerminalColorSchemes.custom(customBg, customFg, customCursor)
         } else {
             TerminalColorSchemes.byId(schemeId)
         }
-
-    val isCustomScheme: Boolean
-        get() = schemeId == TerminalColorSchemes.CUSTOM_ID
 
     companion object {
         val LINE_SPACING_MIN = 1.0f
