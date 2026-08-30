@@ -1,7 +1,12 @@
 package com.shellbox.ui.settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,8 +42,8 @@ import kotlin.math.roundToInt
 
 /**
  * Unified Appearance & Personalization settings screen.
- * Covers color schemes, font, line spacing, cursor, scrollback, and haptics.
- * All changes are applied immediately via [TerminalSettingsStore].
+ * Covers color schemes (including custom), font, line spacing, cursor,
+ * scrollback, and haptics. All changes apply immediately.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,13 +54,14 @@ fun AppearanceSettingsScreen(
     val store = remember { TerminalSettingsStore.getInstance(context) }
     val appearance by store.appearance.collectAsState()
 
-    // Local slider state for smooth dragging; committed on release.
     var fontSizeSlider by remember(appearance.fontSize) {
         mutableFloatStateOf(appearance.fontSize)
     }
     var lineSpacingSlider by remember(appearance.lineSpacing) {
         mutableFloatStateOf(appearance.lineSpacing)
     }
+    // Which custom color slot is being edited: "bg" | "fg" | "cursor"
+    var editingSlot by remember { mutableStateOf("bg") }
 
     Scaffold(
         topBar = {
@@ -86,7 +92,6 @@ fun AppearanceSettingsScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
 
-                // ── Live preview ─────────────────────────────────────────
                 AppearancePreviewCard(
                     appearance = appearance.copy(
                         fontSize = fontSizeSlider,
@@ -96,7 +101,7 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Theme ────────────────────────────────────────────────
+                // ── Theme presets ────────────────────────────────────────
                 SectionHeader("主题")
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
@@ -117,6 +122,49 @@ fun AppearanceSettingsScreen(
                     }
                 }
 
+                Spacer(Modifier.height(10.dp))
+
+                // Custom theme entry
+                CustomThemeCard(
+                    appearance = appearance,
+                    isSelected = appearance.isCustomScheme,
+                    onSelect = {
+                        store.updateAppearance {
+                            it.copy(schemeId = TerminalColorSchemes.CUSTOM_ID)
+                        }
+                    }
+                )
+
+                AnimatedVisibility(
+                    visible = appearance.isCustomScheme,
+                    enter = fadeIn(tween(150)) + expandVertically(tween(150)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(120))
+                ) {
+                    CustomColorEditor(
+                        appearance = appearance,
+                        editingSlot = editingSlot,
+                        onSlotChange = { editingSlot = it },
+                        onPickColor = { color ->
+                            store.updateAppearance { a ->
+                                when (editingSlot) {
+                                    "fg" -> a.copy(
+                                        schemeId = TerminalColorSchemes.CUSTOM_ID,
+                                        customFg = color
+                                    )
+                                    "cursor" -> a.copy(
+                                        schemeId = TerminalColorSchemes.CUSTOM_ID,
+                                        customCursor = color
+                                    )
+                                    else -> a.copy(
+                                        schemeId = TerminalColorSchemes.CUSTOM_ID,
+                                        customBg = color
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+
                 Spacer(Modifier.height(28.dp))
 
                 // ── Font size ────────────────────────────────────────────
@@ -133,9 +181,7 @@ fun AppearanceSettingsScreen(
                     Slider(
                         value = fontSizeSlider,
                         onValueChange = { fontSizeSlider = it },
-                        onValueChangeFinished = {
-                            store.setFontSize(fontSizeSlider)
-                        },
+                        onValueChangeFinished = { store.setFontSize(fontSizeSlider) },
                         valueRange = TerminalFontDefaults.MIN_SIZE..TerminalFontDefaults.MAX_SIZE,
                         steps = (TerminalFontDefaults.MAX_SIZE - TerminalFontDefaults.MIN_SIZE).toInt() - 1,
                         colors = SliderDefaults.colors(
@@ -232,7 +278,6 @@ fun AppearanceSettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
-                        // Style selector
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -274,7 +319,6 @@ fun AppearanceSettingsScreen(
 
                         HorizontalDivider(color = Color(0xFFE5E5EA))
 
-                        // Blink toggle
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -317,7 +361,6 @@ fun AppearanceSettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
-                        // Scrollback
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -330,7 +373,7 @@ fun AppearanceSettingsScreen(
                                 color = Color.Black
                             )
                             Text(
-                                "终端可向上回滚的最大行数",
+                                "终端可向上回滚的最大行数（新建会话后生效）",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -375,7 +418,6 @@ fun AppearanceSettingsScreen(
 
                         HorizontalDivider(color = Color(0xFFE5E5EA))
 
-                        // Haptic on virtual keys
                         ToggleRow(
                             title = "虚拟键震动",
                             subtitle = "按下虚拟按键时提供触觉反馈",
@@ -387,7 +429,6 @@ fun AppearanceSettingsScreen(
 
                         HorizontalDivider(color = Color(0xFFE5E5EA))
 
-                        // Bell vibrate
                         ToggleRow(
                             title = "终端响铃震动",
                             subtitle = "收到 BEL 字符时震动提示",
@@ -400,6 +441,213 @@ fun AppearanceSettingsScreen(
                 }
 
                 Spacer(Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Custom theme UI
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun CustomThemeCard(
+    appearance: TerminalAppearance,
+    isSelected: Boolean,
+    onSelect: () -> Unit
+) {
+    val scheme = TerminalColorSchemes.custom(
+        appearance.customBg, appearance.customFg, appearance.customCursor
+    )
+    val borderColor by animateColorAsState(
+        if (isSelected) Blue40 else Color(0xFFE5E5EA),
+        tween(150), label = "custom_border"
+    )
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(scheme.background)),
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "自定义",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = Color(scheme.foreground)
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "自由选择背景 / 前景 / 光标颜色",
+                    fontSize = 12.sp,
+                    color = Color(scheme.foreground).copy(alpha = 0.65f)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(scheme.background, scheme.foreground, scheme.cursor).forEach { c ->
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(Color(c))
+                            .border(1.dp, Color.Black.copy(alpha = 0.2f), CircleShape)
+                    )
+                }
+            }
+            if (isSelected) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Blue40),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomColorEditor(
+    appearance: TerminalAppearance,
+    editingSlot: String,
+    onSlotChange: (String) -> Unit,
+    onPickColor: (Long) -> Unit
+) {
+    Column(modifier = Modifier.padding(top = 12.dp)) {
+        // Slot tabs
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                "bg" to "背景",
+                "fg" to "前景",
+                "cursor" to "光标"
+            ).forEach { (slot, label) ->
+                val selected = editingSlot == slot
+                val current = when (slot) {
+                    "fg" -> appearance.customFg
+                    "cursor" -> appearance.customCursor
+                    else -> appearance.customBg
+                }
+                val bg by animateColorAsState(
+                    if (selected) Blue40 else Color(0xFFF0F0F3),
+                    tween(150), label = "slot_bg"
+                )
+                val fg by animateColorAsState(
+                    if (selected) Color.White else Color.Black,
+                    tween(150), label = "slot_fg"
+                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(bg)
+                        .clickable { onSlotChange(slot) }
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .background(Color(current))
+                            .border(1.dp, Color.Black.copy(alpha = 0.25f), CircleShape)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        label,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = fg
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        // Palette grid
+        Card(
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    "选择颜色",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                val selectedColor = when (editingSlot) {
+                    "fg" -> appearance.customFg
+                    "cursor" -> appearance.customCursor
+                    else -> appearance.customBg
+                }
+                // 8 columns × 4 rows
+                val rows = TerminalAppearance.COLOR_PALETTE.chunked(8)
+                rows.forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        row.forEach { color ->
+                            val isSelected = (color and 0x00FFFFFF) == (selectedColor and 0x00FFFFFF)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .clip(CircleShape)
+                                    .background(Color(color))
+                                    .border(
+                                        width = if (isSelected) 2.5.dp else 1.dp,
+                                        color = if (isSelected) Blue40 else Color.Black.copy(alpha = 0.15f),
+                                        shape = CircleShape
+                                    )
+                                    .clickable { onPickColor(color or 0xFF000000) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = if ((color and 0x00FFFFFF) > 0x00800000) {
+                                            Color.Black
+                                        } else {
+                                            Color.White
+                                        },
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                        // Pad incomplete last row
+                        repeat(8 - row.size) {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
             }
         }
     }
@@ -456,11 +704,7 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
     val scheme = appearance.scheme
     val bg = Color(scheme.background)
     val fg = Color(scheme.foreground)
-    // Accent-ish green for the prompt line, derived from scheme
-    val promptColor = if (scheme.background.toInt() ushr 24 == 0xFF &&
-        (scheme.background and 0x00FFFFFF) > 0x00A00000
-    ) {
-        // Light background → darker green
+    val promptColor = if ((scheme.background and 0x00FFFFFF) > 0x00A00000) {
         Color(0xFF4E9A06)
     } else {
         Color(0xFF8AE234)
@@ -473,7 +717,6 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Fake window dots
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFFF5F56)))
                 Spacer(Modifier.width(6.dp))
@@ -504,7 +747,6 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
                 fontFamily = composeFontFamily,
                 lineHeight = (appearance.fontSize * appearance.lineSpacing).sp
             )
-            // Cursor preview line
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "root@shellbox:~# ",
@@ -536,35 +778,18 @@ private fun CursorPreview(
     }
     when (style) {
         CursorStyle.BLOCK -> {
-            Box(
-                Modifier
-                    .width(w)
-                    .height(h)
-                    .background(color)
-            )
+            Box(Modifier.width(w).height(h).background(color))
         }
         CursorStyle.UNDERLINE -> {
             Box(
-                Modifier
-                    .width(w)
-                    .height(h),
+                Modifier.width(w).height(h),
                 contentAlignment = Alignment.BottomCenter
             ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(color)
-                )
+                Box(Modifier.fillMaxWidth().height(2.dp).background(color))
             }
         }
         CursorStyle.BAR -> {
-            Box(
-                Modifier
-                    .width(w)
-                    .height(h)
-                    .background(color)
-            )
+            Box(Modifier.width(w).height(h).background(color))
         }
     }
 }
@@ -587,9 +812,7 @@ private fun ThemeOptionCard(
             .fillMaxWidth()
             .clickable(onClick = onClick)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
-        ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -628,7 +851,6 @@ private fun ThemeOptionCard(
                 maxLines = 1
             )
             Spacer(Modifier.height(6.dp))
-            // Mini color swatches
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(
                     scheme.background,
