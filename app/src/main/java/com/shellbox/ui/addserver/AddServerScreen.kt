@@ -33,6 +33,7 @@ fun AddServerScreen(
     onBack: () -> Unit,
     viewModel: AddServerViewModel = hiltViewModel()
 ) {
+    val scheme = MaterialTheme.colorScheme
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("22") }
@@ -83,10 +84,15 @@ fun AddServerScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(
             modifier = Modifier
