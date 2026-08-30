@@ -33,6 +33,7 @@ fun AddServerScreen(
     onBack: () -> Unit,
     viewModel: AddServerViewModel = hiltViewModel()
 ) {
+    val scheme = MaterialTheme.colorScheme
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("22") }
@@ -47,7 +48,6 @@ fun AddServerScreen(
     var isLoading by remember { mutableStateOf(false) }
     var portForwardRules by remember { mutableStateOf<List<PortForwardRule>>(emptyList()) }
 
-    // Load existing server data for editing
     LaunchedEffect(editServerId) {
         if (editServerId != null && editServerId > 0) {
             val server = viewModel.getServer(editServerId)
@@ -83,10 +83,15 @@ fun AddServerScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(
             modifier = Modifier
@@ -102,7 +107,6 @@ fun AddServerScreen(
                     .widthIn(max = MaxFormContentWidth),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-            // Section: 基本信息
             SectionHeader(icon = Icons.Outlined.Info, title = "基本信息")
 
             ShellTextField(
@@ -131,7 +135,6 @@ fun AddServerScreen(
                 )
             }
 
-            // Section: 认证信息
             Spacer(Modifier.height(4.dp))
             SectionHeader(icon = Icons.Outlined.Security, title = "认证信息")
 
@@ -185,7 +188,6 @@ fun AddServerScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Section: 端口转发
             SectionHeader(icon = Icons.Outlined.SettingsEthernet, title = "端口转发")
             PortForwardSection(
                 rules = portForwardRules,
@@ -194,7 +196,6 @@ fun AddServerScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            // Save Button
             Button(
                 onClick = {
                     isLoading = true
