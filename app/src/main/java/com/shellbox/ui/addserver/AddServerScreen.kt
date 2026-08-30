@@ -47,7 +47,6 @@ fun AddServerScreen(
     var isLoading by remember { mutableStateOf(false) }
     var portForwardRules by remember { mutableStateOf<List<PortForwardRule>>(emptyList()) }
 
-    // Load existing server data for editing
     LaunchedEffect(editServerId) {
         if (editServerId != null && editServerId > 0) {
             val server = viewModel.getServer(editServerId)
@@ -68,6 +67,7 @@ fun AddServerScreen(
 
     val isEdit = editServerId != null && editServerId > 0
     val isFormValid = name.isNotBlank() && host.isNotBlank() && username.isNotBlank()
+    val scheme = MaterialTheme.colorScheme
 
     Scaffold(
         topBar = {
@@ -83,10 +83,14 @@ fun AddServerScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(
             modifier = Modifier
@@ -102,149 +106,145 @@ fun AddServerScreen(
                     .widthIn(max = MaxFormContentWidth),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-            // Section: 基本信息
-            SectionHeader(icon = Icons.Outlined.Info, title = "基本信息")
+                SectionHeader(icon = Icons.Outlined.Info, title = "基本信息")
 
-            ShellTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = "服务器名称",
-                placeholder = "我的服务器",
-                leadingIcon = Icons.Outlined.Label
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ShellTextField(
-                    value = host,
-                    onValueChange = { host = it },
-                    label = "主机 / IP",
-                    placeholder = "192.168.1.1",
-                    modifier = Modifier.weight(1f),
-                    leadingIcon = Icons.Outlined.Dns
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "服务器名称",
+                    placeholder = "我的服务器",
+                    leadingIcon = Icons.Outlined.Label
                 )
-                ShellTextField(
-                    value = port,
-                    onValueChange = { port = it.filter { c -> c.isDigit() } },
-                    label = "端口",
-                    placeholder = "22",
-                    modifier = Modifier.width(90.dp)
-                )
-            }
 
-            // Section: 认证信息
-            Spacer(Modifier.height(4.dp))
-            SectionHeader(icon = Icons.Outlined.Security, title = "认证信息")
-
-            ShellTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = "用户名",
-                placeholder = "root",
-                leadingIcon = Icons.Outlined.Person
-            )
-
-            AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it })
-
-            if (authType == AuthType.PASSWORD) {
-                ShellTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = "密码",
-                    placeholder = "••••••••",
-                    leadingIcon = Icons.Outlined.Lock,
-                    isPassword = true,
-                    showPassword = showPassword,
-                    onTogglePassword = { showPassword = !showPassword }
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PrivateKeyInput(
-                        source = privateKeySource,
-                        value = privateKeyValue,
-                        fileDisplayName = privateKeyFileName,
-                        onSourceChange = {
-                            privateKeySource = it
-                            privateKeyValue = ""
-                            privateKeyFileName = null
-                        },
-                        onValueChange = { privateKeyValue = it },
-                        onFileDisplayNameChange = { privateKeyFileName = it }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ShellTextField(
+                        value = host,
+                        onValueChange = { host = it },
+                        label = "主机 / IP",
+                        placeholder = "192.168.1.1",
+                        modifier = Modifier.weight(1f),
+                        leadingIcon = Icons.Outlined.Dns
                     )
                     ShellTextField(
-                        value = keyPassphrase,
-                        onValueChange = { keyPassphrase = it },
-                        label = "密钥密码（可选）",
-                        placeholder = "留空表示无密码",
-                        leadingIcon = Icons.Outlined.Password,
+                        value = port,
+                        onValueChange = { port = it.filter { c -> c.isDigit() } },
+                        label = "端口",
+                        placeholder = "22",
+                        modifier = Modifier.width(90.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+                SectionHeader(icon = Icons.Outlined.Security, title = "认证信息")
+
+                ShellTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = "用户名",
+                    placeholder = "root",
+                    leadingIcon = Icons.Outlined.Person
+                )
+
+                AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it })
+
+                if (authType == AuthType.PASSWORD) {
+                    ShellTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = "密码",
+                        placeholder = "••••••••",
+                        leadingIcon = Icons.Outlined.Lock,
                         isPassword = true,
                         showPassword = showPassword,
                         onTogglePassword = { showPassword = !showPassword }
                     )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Section: 端口转发
-            SectionHeader(icon = Icons.Outlined.SettingsEthernet, title = "端口转发")
-            PortForwardSection(
-                rules = portForwardRules,
-                onRulesChange = { portForwardRules = it }
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Save Button
-            Button(
-                onClick = {
-                    isLoading = true
-                    val server = Server(
-                        id = if (isEdit) editServerId!! else 0L,
-                        name = name.trim(),
-                        host = host.trim(),
-                        port = port.toIntOrNull() ?: 22,
-                        username = username.trim(),
-                        authType = authType,
-                        password = password,
-                        privateKeySource = privateKeySource,
-                        privateKeyValue = if (privateKeySource == PrivateKeySource.TEXT)
-                            privateKeyValue.trim() else privateKeyValue,
-                        privateKeyPassphrase = keyPassphrase,
-                        portForwardRules = portForwardRules
-                    )
-                    viewModel.saveServer(server) {
-                        isLoading = false
-                        onBack()
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                enabled = isFormValid && !isLoading,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Blue40,
-                    disabledContainerColor = Blue90
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
                 } else {
-                    Icon(Icons.Filled.Save, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (isEdit) "保存修改" else "保存服务器",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PrivateKeyInput(
+                            source = privateKeySource,
+                            value = privateKeyValue,
+                            fileDisplayName = privateKeyFileName,
+                            onSourceChange = {
+                                privateKeySource = it
+                                privateKeyValue = ""
+                                privateKeyFileName = null
+                            },
+                            onValueChange = { privateKeyValue = it },
+                            onFileDisplayNameChange = { privateKeyFileName = it }
+                        )
+                        ShellTextField(
+                            value = keyPassphrase,
+                            onValueChange = { keyPassphrase = it },
+                            label = "密钥密码（可选）",
+                            placeholder = "留空表示无密码",
+                            leadingIcon = Icons.Outlined.Password,
+                            isPassword = true,
+                            showPassword = showPassword,
+                            onTogglePassword = { showPassword = !showPassword }
+                        )
+                    }
                 }
-            }
 
-            Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(8.dp))
+
+                SectionHeader(icon = Icons.Outlined.SettingsEthernet, title = "端口转发")
+                PortForwardSection(
+                    rules = portForwardRules,
+                    onRulesChange = { portForwardRules = it }
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        isLoading = true
+                        val server = Server(
+                            id = if (isEdit) editServerId!! else 0L,
+                            name = name.trim(),
+                            host = host.trim(),
+                            port = port.toIntOrNull() ?: 22,
+                            username = username.trim(),
+                            authType = authType,
+                            password = password,
+                            privateKeySource = privateKeySource,
+                            privateKeyValue = if (privateKeySource == PrivateKeySource.TEXT)
+                                privateKeyValue.trim() else privateKeyValue,
+                            privateKeyPassphrase = keyPassphrase,
+                            portForwardRules = portForwardRules
+                        )
+                        viewModel.saveServer(server) {
+                            isLoading = false
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    enabled = isFormValid && !isLoading,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Blue40,
+                        disabledContainerColor = Blue90
+                    )
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(Icons.Filled.Save, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (isEdit) "保存修改" else "保存服务器",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
             }
         }
     }

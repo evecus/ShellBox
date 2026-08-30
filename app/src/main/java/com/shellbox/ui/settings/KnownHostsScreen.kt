@@ -13,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,11 +44,6 @@ class KnownHostsViewModel @Inject constructor(
     }
 }
 
-/**
- * Lets the user review and clear remembered host-key fingerprints (see [com.shellbox.ssh.KnownHostsVerifier]).
- * Removing an entry here is required before ShellBox will accept a *changed* host key for that
- * host:port — this is the deliberate "fail closed, let the user decide" flow for TOFU verification.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KnownHostsScreen(
@@ -58,6 +52,7 @@ fun KnownHostsScreen(
 ) {
     val hosts by viewModel.knownHosts.collectAsState()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    val scheme = MaterialTheme.colorScheme
 
     Scaffold(
         topBar = {
@@ -68,46 +63,50 @@ fun KnownHostsScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
-        Column(modifier = Modifier.fillMaxSize().widthIn(max = com.shellbox.ui.util.MaxFormContentWidth * 1.3f)) {
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Icon(Icons.Outlined.Lock, contentDescription = null, tint = Blue40, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "ShellBox 会记录每台服务器首次连接时的主机密钥指纹。若某台服务器的指纹发生变化，连接会被自动拒绝以防范中间人攻击；如果这是预期的变更（如重装了系统），可以在这里删除旧记录后重新连接。",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    lineHeight = 17.sp
-                )
-            }
-
-            if (hosts.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无已记录的主机密钥", color = Color.Gray, fontSize = 13.sp)
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            Column(modifier = Modifier.fillMaxSize().widthIn(max = com.shellbox.ui.util.MaxFormContentWidth * 1.3f)) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    items(hosts, key = { it.hostPort }) { host ->
-                        KnownHostCard(
-                            host = host,
-                            dateText = dateFormat.format(Date(host.firstSeenAt)),
-                            onForget = { viewModel.forget(host.hostPort) }
-                        )
+                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = Blue40, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "ShellBox 会记住每台服务器首次连接时的主机密钥指纹。若某台服务器的指纹发生变化，连接会被自动拒绝以防范中间人攻击；如果这是预期的变更（如重装了系统），可以在这里删除旧记录后重新连接。",
+                        fontSize = 12.sp,
+                        color = scheme.onSurfaceVariant,
+                        lineHeight = 17.sp
+                    )
+                }
+
+                if (hosts.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("暂无已记录的主机密钥", color = scheme.onSurfaceVariant, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(hosts, key = { it.hostPort }) { host ->
+                            KnownHostCard(
+                                host = host,
+                                dateText = dateFormat.format(Date(host.firstSeenAt)),
+                                onForget = { viewModel.forget(host.hostPort) }
+                            )
+                        }
                     }
                 }
             }
-        }
         }
     }
 }
@@ -118,9 +117,10 @@ private fun KnownHostCard(
     dateText: String,
     onForget: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFFF5F7FA),
+        color = scheme.surfaceVariant,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -130,17 +130,17 @@ private fun KnownHostCard(
             Icon(Icons.Outlined.Key, contentDescription = null, tint = Blue40, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(host.hostPort, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(host.hostPort, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = scheme.onSurface)
                 Text(
                     "${host.keyType} · ${host.fingerprint}",
                     fontSize = 11.sp,
-                    color = Color.Gray,
+                    color = scheme.onSurfaceVariant,
                     maxLines = 1
                 )
-                Text("首次记录：$dateText", fontSize = 10.sp, color = Color(0xFFADB5BD))
+                Text("首次记录：$dateText", fontSize = 10.sp, color = scheme.onSurfaceVariant.copy(alpha = 0.7f))
             }
             IconButton(onClick = onForget) {
-                Icon(Icons.Outlined.Delete, contentDescription = "删除记录", tint = Color(0xFFE57373))
+                Icon(Icons.Outlined.Delete, contentDescription = "删除记录", tint = scheme.error)
             }
         }
     }
