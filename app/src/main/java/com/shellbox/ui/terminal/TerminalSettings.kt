@@ -11,11 +11,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
-/**
- * Available terminal fonts.
- * SYSTEM uses the platform's built-in monospace face (no asset needed).
- * The others are bundled TTF files under app/src/main/assets/fonts/.
- */
 enum class TerminalFont(
     val id: String,
     val displayName: String,
@@ -31,21 +26,28 @@ enum class TerminalFont(
     }
 }
 
-/** Bounds shared by the settings screen slider and the canvas renderer. */
 object TerminalFontDefaults {
     const val MIN_SIZE = 10f
     const val MAX_SIZE = 22f
     const val DEFAULT_SIZE = 14f
 }
 
-/**
- * Lightweight SharedPreferences-backed store for terminal display settings.
- */
 class TerminalSettingsStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private fun loadAppThemeMode(): AppThemeMode {
+        val stored = prefs.getString(KEY_APP_THEME_MODE, null)
+        if (stored != null) return AppThemeMode.fromId(stored)
+        // Migrate legacy boolean
+        return if (prefs.getBoolean(KEY_APP_FOLLOW_SYSTEM, false)) {
+            AppThemeMode.SYSTEM
+        } else {
+            AppThemeMode.LIGHT
+        }
+    }
 
     private fun loadAppearance(): TerminalAppearance = TerminalAppearance(
         schemeId = prefs.getString(KEY_SCHEME, TerminalColorSchemes.LIGHT.id)
@@ -54,7 +56,7 @@ class TerminalSettingsStore(context: Context) {
         customFg = prefs.getLong(KEY_CUSTOM_FG, 0xFFEEEEEC),
         customCursor = prefs.getLong(KEY_CUSTOM_CURSOR, 0xFFEEEEEC),
         followSystemTheme = prefs.getBoolean(KEY_FOLLOW_SYSTEM, false),
-        appFollowSystemTheme = prefs.getBoolean(KEY_APP_FOLLOW_SYSTEM, false),
+        appThemeMode = loadAppThemeMode(),
         font = TerminalFont.fromId(
             prefs.getString(KEY_FONT, TerminalFont.SYSTEM.id) ?: TerminalFont.SYSTEM.id
         ),
@@ -91,7 +93,8 @@ class TerminalSettingsStore(context: Context) {
             .putLong(KEY_CUSTOM_FG, a.customFg)
             .putLong(KEY_CUSTOM_CURSOR, a.customCursor)
             .putBoolean(KEY_FOLLOW_SYSTEM, a.followSystemTheme)
-            .putBoolean(KEY_APP_FOLLOW_SYSTEM, a.appFollowSystemTheme)
+            .putString(KEY_APP_THEME_MODE, a.appThemeMode.id)
+            .putBoolean(KEY_APP_FOLLOW_SYSTEM, a.appThemeMode == AppThemeMode.SYSTEM)
             .putString(KEY_FONT, a.font.id)
             .putFloat(KEY_FONT_SIZE, a.fontSize)
             .putFloat(KEY_LINE_SPACING, a.lineSpacing)
@@ -146,6 +149,7 @@ class TerminalSettingsStore(context: Context) {
         private const val KEY_CUSTOM_CURSOR = "custom_cursor"
         private const val KEY_FOLLOW_SYSTEM = "follow_system_theme"
         private const val KEY_APP_FOLLOW_SYSTEM = "app_follow_system_theme"
+        private const val KEY_APP_THEME_MODE = "app_theme_mode"
         private const val KEY_LINE_SPACING = "line_spacing"
         private const val KEY_CURSOR_STYLE = "cursor_style"
         private const val KEY_CURSOR_BLINK = "cursor_blink"

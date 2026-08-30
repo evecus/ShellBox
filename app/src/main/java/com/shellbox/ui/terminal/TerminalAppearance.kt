@@ -16,6 +16,18 @@ enum class CursorStyle(val id: String, val displayName: String) {
     }
 }
 
+/** App-wide Material theme mode (independent of terminal color scheme). */
+enum class AppThemeMode(val id: String, val displayName: String) {
+    SYSTEM("system", "跟随系统"),
+    LIGHT("light", "浅色"),
+    DARK("dark", "深色");
+
+    companion object {
+        fun fromId(id: String): AppThemeMode =
+            entries.find { it.id == id } ?: SYSTEM
+    }
+}
+
 /**
  * A complete terminal color scheme.
  * Colors are packed ARGB longs (e.g. 0xFF1C1C1C).
@@ -132,8 +144,8 @@ data class TerminalAppearance(
      * fallback for when this is turned off.
      */
     val followSystemTheme: Boolean = false,
-    /** When true, the app MaterialTheme also follows system dark mode. */
-    val appFollowSystemTheme: Boolean = false,
+    /** App-wide Material theme: follow system, force light, or force dark. */
+    val appThemeMode: AppThemeMode = AppThemeMode.LIGHT,
     val font: TerminalFont = TerminalFont.SYSTEM,
     val fontSize: Float = TerminalFontDefaults.DEFAULT_SIZE,
     /** Relative line-height multiplier applied on top of the font metrics. */
@@ -149,6 +161,13 @@ data class TerminalAppearance(
 ) {
     val isCustomScheme: Boolean
         get() = schemeId == TerminalColorSchemes.CUSTOM_ID
+
+    /** Whether the app MaterialTheme should use dark colors given system state. */
+    fun isAppDark(isSystemDark: Boolean): Boolean = when (appThemeMode) {
+        AppThemeMode.SYSTEM -> isSystemDark
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+    }
 
     /**
      * Resolve the active color scheme for rendering.

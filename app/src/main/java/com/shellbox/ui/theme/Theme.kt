@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -94,18 +95,17 @@ private val ShellBoxDarkColors = darkColorScheme(
 )
 
 /**
- * App-wide theme. When the user enables "应用界面跟随系统" in Appearance settings,
- * MaterialTheme switches between light and dark based on [isSystemInDarkTheme].
- * Otherwise the original light-only ShellBox look is preserved.
+ * App-wide theme driven by [TerminalAppearance.appThemeMode]:
+ * SYSTEM / LIGHT / DARK.
  */
 @Composable
 fun ShellBoxTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
-    val store = androidx.compose.runtime.remember { TerminalSettingsStore.getInstance(context) }
+    val store = remember { TerminalSettingsStore.getInstance(context) }
     val appearance by store.appearance.collectAsState()
     val systemDark = isSystemInDarkTheme()
 
-    val useDark = appearance.appFollowSystemTheme && systemDark
+    val useDark = appearance.isAppDark(systemDark)
     val colorScheme = if (useDark) ShellBoxDarkColors else ShellBoxLightColors
     val view = LocalView.current
 
