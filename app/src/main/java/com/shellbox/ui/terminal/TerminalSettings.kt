@@ -40,8 +40,6 @@ object TerminalFontDefaults {
 
 /**
  * Lightweight SharedPreferences-backed store for terminal display settings.
- * Exposes both granular StateFlows (for backward compatibility) and a unified
- * [appearance] StateFlow that the new Appearance settings page and TerminalCanvas use.
  */
 class TerminalSettingsStore(context: Context) {
     private val prefs = context.applicationContext
@@ -49,14 +47,14 @@ class TerminalSettingsStore(context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    // ── Unified appearance ───────────────────────────────────────────────────
-
     private fun loadAppearance(): TerminalAppearance = TerminalAppearance(
         schemeId = prefs.getString(KEY_SCHEME, TerminalColorSchemes.LIGHT.id)
             ?: TerminalColorSchemes.LIGHT.id,
         customBg = prefs.getLong(KEY_CUSTOM_BG, 0xFF1C1C1C),
         customFg = prefs.getLong(KEY_CUSTOM_FG, 0xFFEEEEEC),
         customCursor = prefs.getLong(KEY_CUSTOM_CURSOR, 0xFFEEEEEC),
+        followSystemTheme = prefs.getBoolean(KEY_FOLLOW_SYSTEM, false),
+        appFollowSystemTheme = prefs.getBoolean(KEY_APP_FOLLOW_SYSTEM, false),
         font = TerminalFont.fromId(
             prefs.getString(KEY_FONT, TerminalFont.SYSTEM.id) ?: TerminalFont.SYSTEM.id
         ),
@@ -92,6 +90,8 @@ class TerminalSettingsStore(context: Context) {
             .putLong(KEY_CUSTOM_BG, a.customBg)
             .putLong(KEY_CUSTOM_FG, a.customFg)
             .putLong(KEY_CUSTOM_CURSOR, a.customCursor)
+            .putBoolean(KEY_FOLLOW_SYSTEM, a.followSystemTheme)
+            .putBoolean(KEY_APP_FOLLOW_SYSTEM, a.appFollowSystemTheme)
             .putString(KEY_FONT, a.font.id)
             .putFloat(KEY_FONT_SIZE, a.fontSize)
             .putFloat(KEY_LINE_SPACING, a.lineSpacing)
@@ -102,8 +102,6 @@ class TerminalSettingsStore(context: Context) {
             .putBoolean(KEY_BELL_VIBRATE, a.bellVibrate)
             .apply()
     }
-
-    // ── Backward-compatible granular flows ───────────────────────────────────
 
     val fontSize: StateFlow<Float> = _appearance
         .map { it.fontSize }
@@ -128,8 +126,6 @@ class TerminalSettingsStore(context: Context) {
         updateAppearance { it.copy(font = font) }
     }
 
-    // ── Keep-alive (unchanged, independent of appearance) ────────────────────
-
     private val _keepAliveServiceEnabled = MutableStateFlow(
         prefs.getBoolean(KEY_KEEP_ALIVE_SERVICE, false)
     )
@@ -148,6 +144,8 @@ class TerminalSettingsStore(context: Context) {
         private const val KEY_CUSTOM_BG = "custom_bg"
         private const val KEY_CUSTOM_FG = "custom_fg"
         private const val KEY_CUSTOM_CURSOR = "custom_cursor"
+        private const val KEY_FOLLOW_SYSTEM = "follow_system_theme"
+        private const val KEY_APP_FOLLOW_SYSTEM = "app_follow_system_theme"
         private const val KEY_LINE_SPACING = "line_spacing"
         private const val KEY_CURSOR_STYLE = "cursor_style"
         private const val KEY_CURSOR_BLINK = "cursor_blink"
@@ -166,7 +164,6 @@ class TerminalSettingsStore(context: Context) {
     }
 }
 
-/** Resolves a [TerminalFont] to an Android [Typeface], caching loaded assets. */
 object TerminalTypefaceCache {
     private val cache = mutableMapOf<TerminalFont, Typeface>()
 
