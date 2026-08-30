@@ -25,10 +25,6 @@ import androidx.compose.ui.unit.sp
 import com.shellbox.ui.terminal.TerminalSettingsStore
 import com.shellbox.ui.theme.Blue40
 
-/**
- * Top-level settings screen: an index of entries (appearance, virtual keys,
- * connection & security, ...) that drill into their own dedicated screens.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -37,6 +33,7 @@ fun SettingsScreen(
     onOpenKeySettings: () -> Unit = {},
     onOpenKnownHosts: () -> Unit = {}
 ) {
+    val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val settingsStore = remember { TerminalSettingsStore.getInstance(context) }
     val keepAliveEnabled by settingsStore.keepAliveServiceEnabled.collectAsState()
@@ -52,10 +49,15 @@ fun SettingsScreen(
                         Icon(Icons.Filled.ArrowBack, null)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -70,15 +72,12 @@ fun SettingsScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            // ---------------------------------------------------------
-            // 外观与个性化
-            // ---------------------------------------------------------
             SectionHeader("外观")
             Spacer(Modifier.height(10.dp))
             Card(
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpenAppearanceSettings)
@@ -87,37 +86,24 @@ fun SettingsScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Outlined.Palette,
-                        contentDescription = null,
-                        tint = Blue40,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Icon(Icons.Outlined.Palette, contentDescription = null, tint = Blue40, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("外观与个性化", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
-                        Text("主题、字体、光标、行间距等", fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("外观与个性化", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = scheme.onSurface)
+                        Text("主题、字体、光标、行间距等", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
             Spacer(Modifier.height(24.dp))
 
-            // ---------------------------------------------------------
-            // 虚拟按键设置入口
-            // ---------------------------------------------------------
             SectionHeader("虚拟按键")
             Spacer(Modifier.height(10.dp))
             Card(
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onOpenKeySettings)
@@ -126,38 +112,25 @@ fun SettingsScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Outlined.Keyboard,
-                        contentDescription = null,
-                        tint = Blue40,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Icon(Icons.Outlined.Keyboard, contentDescription = null, tint = Blue40, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("按键布局设置", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
-                        Text("自定义虚拟键盘的按键内容与排列", fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("按键布局设置", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = scheme.onSurface)
+                        Text("自定义虚拟键盘的按键内容与排列", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
             Spacer(Modifier.height(24.dp))
 
-            // ---------------------------------------------------------
-            // 连接与安全
-            // ---------------------------------------------------------
             SectionHeader("连接与安全")
             Spacer(Modifier.height(10.dp))
 
             Card(
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                colors = CardDefaults.cardColors(containerColor = scheme.surface),
+                border = BorderStroke(1.dp, scheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column {
@@ -167,15 +140,10 @@ fun SettingsScreen(
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Outlined.Sync,
-                            contentDescription = null,
-                            tint = Blue40,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Icon(Icons.Outlined.Sync, contentDescription = null, tint = Blue40, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("后台保活", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
+                            Text("后台保活", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = scheme.onSurface)
                             Text(
                                 "切到后台或锁屏时继续保持 SSH 连接（会常驻通知栏）",
                                 fontSize = 12.sp,
@@ -190,7 +158,7 @@ fun SettingsScreen(
                         )
                     }
 
-                    HorizontalDivider(color = Color(0xFFE5E5EA))
+                    HorizontalDivider(color = scheme.outlineVariant)
 
                     Row(
                         modifier = Modifier
@@ -199,23 +167,13 @@ fun SettingsScreen(
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Outlined.Lock,
-                            contentDescription = null,
-                            tint = Blue40,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Icon(Icons.Outlined.Lock, contentDescription = null, tint = Blue40, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("主机密钥管理", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
-                            Text("查看或清除已记录的服务器主机密钥指纹", fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("主机密钥管理", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = scheme.onSurface)
+                            Text("查看或清除已记录的服务器主机密钥指纹", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
