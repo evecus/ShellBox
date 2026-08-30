@@ -1,1 +1,1 @@
-PLACEHOLDER
+{{FILE:/home/workdir/artifacts/TerminalScreen.kt}}
