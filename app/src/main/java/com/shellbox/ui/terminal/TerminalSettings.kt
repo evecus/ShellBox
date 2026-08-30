@@ -54,6 +54,9 @@ class TerminalSettingsStore(context: Context) {
     private fun loadAppearance(): TerminalAppearance = TerminalAppearance(
         schemeId = prefs.getString(KEY_SCHEME, TerminalColorSchemes.LIGHT.id)
             ?: TerminalColorSchemes.LIGHT.id,
+        customBg = prefs.getLong(KEY_CUSTOM_BG, 0xFF1C1C1C),
+        customFg = prefs.getLong(KEY_CUSTOM_FG, 0xFFEEEEEC),
+        customCursor = prefs.getLong(KEY_CUSTOM_CURSOR, 0xFFEEEEEC),
         font = TerminalFont.fromId(
             prefs.getString(KEY_FONT, TerminalFont.SYSTEM.id) ?: TerminalFont.SYSTEM.id
         ),
@@ -86,6 +89,9 @@ class TerminalSettingsStore(context: Context) {
     private fun persist(a: TerminalAppearance) {
         prefs.edit()
             .putString(KEY_SCHEME, a.schemeId)
+            .putLong(KEY_CUSTOM_BG, a.customBg)
+            .putLong(KEY_CUSTOM_FG, a.customFg)
+            .putLong(KEY_CUSTOM_CURSOR, a.customCursor)
             .putString(KEY_FONT, a.font.id)
             .putFloat(KEY_FONT_SIZE, a.fontSize)
             .putFloat(KEY_LINE_SPACING, a.lineSpacing)
@@ -98,7 +104,6 @@ class TerminalSettingsStore(context: Context) {
     }
 
     // ── Backward-compatible granular flows ───────────────────────────────────
-    // Existing screens (FontSettingsScreen, TerminalScreen) still read these.
 
     val fontSize: StateFlow<Float> = _appearance
         .map { it.fontSize }
@@ -140,6 +145,9 @@ class TerminalSettingsStore(context: Context) {
         private const val KEY_FONT = "font_id"
         private const val KEY_KEEP_ALIVE_SERVICE = "keep_alive_service_enabled"
         private const val KEY_SCHEME = "scheme_id"
+        private const val KEY_CUSTOM_BG = "custom_bg"
+        private const val KEY_CUSTOM_FG = "custom_fg"
+        private const val KEY_CUSTOM_CURSOR = "custom_cursor"
         private const val KEY_LINE_SPACING = "line_spacing"
         private const val KEY_CURSOR_STYLE = "cursor_style"
         private const val KEY_CURSOR_BLINK = "cursor_blink"

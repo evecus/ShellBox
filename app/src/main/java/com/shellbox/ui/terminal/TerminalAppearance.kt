@@ -32,6 +32,8 @@ data class TerminalColorScheme(
 )
 
 object TerminalColorSchemes {
+    const val CUSTOM_ID = "custom"
+
     val LIGHT = TerminalColorScheme(
         id = "light",
         name = "白底黑字",
@@ -101,6 +103,20 @@ object TerminalColorSchemes {
 
     fun byId(id: String): TerminalColorScheme =
         ALL.find { it.id == id } ?: LIGHT
+
+    /** Build a custom scheme from user-picked colors. */
+    fun custom(bg: Long, fg: Long, cursor: Long): TerminalColorScheme {
+        // Selection = semi-transparent inverse-ish of background
+        val selection = (0x55L shl 24) or (fg and 0x00FFFFFF)
+        return TerminalColorScheme(
+            id = CUSTOM_ID,
+            name = "自定义",
+            background = bg or 0xFF000000,
+            foreground = fg or 0xFF000000,
+            cursor = cursor or 0xFF000000,
+            selection = selection
+        )
+    }
 }
 
 /**
@@ -108,6 +124,9 @@ object TerminalColorSchemes {
  */
 data class TerminalAppearance(
     val schemeId: String = TerminalColorSchemes.LIGHT.id,
+    val customBg: Long = 0xFF1C1C1C,
+    val customFg: Long = 0xFFEEEEEC,
+    val customCursor: Long = 0xFFEEEEEC,
     val font: TerminalFont = TerminalFont.SYSTEM,
     val fontSize: Float = TerminalFontDefaults.DEFAULT_SIZE,
     /** Relative line-height multiplier applied on top of the font metrics. */
@@ -122,11 +141,30 @@ data class TerminalAppearance(
     val bellVibrate: Boolean = true
 ) {
     val scheme: TerminalColorScheme
-        get() = TerminalColorSchemes.byId(schemeId)
+        get() = if (schemeId == TerminalColorSchemes.CUSTOM_ID) {
+            TerminalColorSchemes.custom(customBg, customFg, customCursor)
+        } else {
+            TerminalColorSchemes.byId(schemeId)
+        }
+
+    val isCustomScheme: Boolean
+        get() = schemeId == TerminalColorSchemes.CUSTOM_ID
 
     companion object {
         val LINE_SPACING_MIN = 1.0f
         val LINE_SPACING_MAX = 1.4f
         val SCROLLBACK_OPTIONS = listOf(500, 1000, 2000, 5000)
+
+        /** Common palette chips for the custom color picker. */
+        val COLOR_PALETTE: List<Long> = listOf(
+            0xFFFFFFFF, 0xFFF5F5F5, 0xFFE0E0E0, 0xFF9E9E9E,
+            0xFF616161, 0xFF424242, 0xFF212121, 0xFF000000,
+            0xFFF44336, 0xFFE91E63, 0xFF9C27B0, 0xFF673AB7,
+            0xFF3F51B5, 0xFF2196F3, 0xFF03A9F4, 0xFF00BCD4,
+            0xFF009688, 0xFF4CAF50, 0xFF8BC34A, 0xFFCDDC39,
+            0xFFFFEB3B, 0xFFFFC107, 0xFFFF9800, 0xFFFF5722,
+            0xFF1C1C1C, 0xFF282A36, 0xFF2E3440, 0xFF002B36,
+            0xFFEEEEEC, 0xFFF8F8F2, 0xFFD8DEE9, 0xFF839496
+        )
     }
 }
