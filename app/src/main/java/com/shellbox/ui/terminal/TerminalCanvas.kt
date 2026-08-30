@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -36,6 +37,8 @@ import com.termux.terminal.TerminalRow
 import com.termux.terminal.TextStyle
 import kotlin.math.floor
 import kotlin.math.max
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 
 // ---------------------------------------------------------------------------
@@ -73,12 +76,6 @@ private fun resolveColor(encodedColor: Int, isFg: Boolean, colors: TerminalColor
 
 // ---------------------------------------------------------------------------
 // Text selection
-//
-// 坐标系与 TerminalBuffer.getSelectedText / externalToInternalRow 一致：
-//   row  0             = 当前屏幕首行
-//   row  mScreenRows-1 = 当前屏幕末行
-//   row  -N            = 滚动历史第 N 行
-//   externalRow = visRow - effectiveScroll
 // ---------------------------------------------------------------------------
 private data class TerminalSelection(
     val startRow: Int, val startCol: Int,
@@ -90,12 +87,8 @@ private data class TerminalSelection(
 }
 
 /**
- * Compose Canvas-based VT100 terminal renderer with smooth text-selection.
- *
- * 手柄拖动流畅的关键：
- * - [selection]     已提交状态，作为 pointerInput key（仅 null↔非null 切换才重启协程）
- * - [liveSelection] 拖动中的实时位置，不是 key，更新时不重启协程
- * - pointerInput key = (selection != null)，整个拖拽过程中不变，协程不被中断
+ * Compose Canvas-based VT100 terminal renderer with smooth text-selection
+ * and full appearance support (color scheme, cursor style, line spacing).
  */
 @Composable
 fun TerminalCanvas(
@@ -106,10 +99,17 @@ fun TerminalCanvas(
     onRequestFocus: () -> Unit,
     modifier: Modifier = Modifier,
     fontSizeSp: Float = TerminalFontDefaults.DEFAULT_SIZE,
-    terminalFont: TerminalFont = TerminalFont.SYSTEM
+    terminalFont: TerminalFont = TerminalFont.SYSTEM,
+    appearance: TerminalAppearance = TerminalAppearance()
 ) {
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    val scheme = appearance.scheme
+    val defaultFg = scheme.foreground.toInt()
+    val defaultBg = scheme.background.toInt()
+    val cursorColor = scheme.cursor.toInt()
+    val selectionColor = Color(scheme.selection)
 
     val fontSizePx = with(density) { fontSizeSp.sp.toPx() }
     val typeface    = remember(terminalFont) { TerminalTypefaceCache.resolve(context, terminalFont) }
@@ -129,18 +129,28 @@ fun TerminalCanvas(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         ) / 62f
     }
-    val cellH    = remember(fontSizePx, typeface) {
-        val fm = textPaint.fontMetrics; (fm.descent - fm.ascent) * 1.05f
+    val cellH    = remember(fontSizePx, typeface, appearance.lineSpacing) {
+        val fm = textPaint.fontMetrics
+        (fm.descent - fm.ascent) * appearance.lineSpacing
     }
     val baseline = remember(fontSizePx, typeface) { -textPaint.fontMetrics.ascent }
 
     var scrollRows  by remember { mutableIntStateOf(0) }
     var dragAccumPx by remember { mutableFloatStateOf(0f) }
 
-    // ── 文字选择状态 ─────────────────────────────────────────────────────────
-    // selection     = 已提交的选区（pointerInput key 依赖此值的 null/非null 状态）
-    // liveSelection = 拖动中的实时选区（不是 key，更新不会重启 pointerInput）
-    // 渲染时用 liveSelection ?: selection，确保手柄实时跟手
+    // Cursor blink
+    var cursorVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(appearance.cursorBlink) {
+        if (!appearance.cursorBlink) {
+            cursorVisible = true
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            delay(530)
+            cursorVisible = !cursorVisible
+        }
+    }
+
     var selection     by remember { mutableStateOf<TerminalSelection?>(null) }
     var liveSelection by remember { mutableStateOf<TerminalSelection?>(null) }
 
@@ -152,14 +162,12 @@ fun TerminalCanvas(
     val handleRadius      = cellH * 0.42f
     val handleTouchRadius = cellH * 1.5f
 
-    // externalRow = visRow - effectiveScroll（与 getSelectedText 一致）
     fun pixelToCell(x: Float, y: Float): Pair<Int, Int> {
         val col    = (x / cellW.coerceAtLeast(1f)).toInt().coerceIn(0, emulator.mColumns - 1)
         val visRow = (y / cellH.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
         return (visRow - scrollRows) to col
     }
 
-    // 手柄像素中心（用 scrollRows 近似 effectiveScroll，供触控区判断）
     fun startHandleCenter(sel: TerminalSelection): Offset {
         val n = sel.normalized()
         return Offset(n.startCol * cellW, (n.startRow + scrollRows + 1) * cellH)
@@ -174,13 +182,9 @@ fun TerminalCanvas(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White)
-                // ── 手势处理 ────────────────────────────────────────────────
-                // key = (selection != null)：仅在"有选区↔无选区"切换时重启协程
-                // 拖动期间 key 不变，liveSelection 更新不中断拖拽，手柄丝滑跟手
+                .background(Color(defaultBg))
                 .pointerInput(selection != null, cellW, cellH) {
                     if (selection == null) {
-                        // 无选区：单击呼出键盘，长按开始选择
                         detectTapGestures(
                             onTap = { onRequestFocus() },
                             onLongPress = { offset ->
@@ -193,7 +197,6 @@ fun TerminalCanvas(
                             }
                         )
                     } else {
-                        // 有选区：拖动手柄 或 点击空白取消
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val pos  = down.position
@@ -203,7 +206,6 @@ fun TerminalCanvas(
                             val endPos   = endHandleCenter(sel)
 
                             when {
-                                // ── 拖动起始手柄 ───────────────────────────
                                 (pos - startPos).getDistance() < handleTouchRadius -> {
                                     liveSelection = sel.normalized()
                                     drag(down.id) { change ->
@@ -214,11 +216,9 @@ fun TerminalCanvas(
                                             ?.copy(startRow = row, startCol = col)
                                         change.consume()
                                     }
-                                    // 拖拽结束：提交实时位置，清除 live
                                     selection     = liveSelection
                                     liveSelection = null
                                 }
-                                // ── 拖动结束手柄 ───────────────────────────
                                 (pos - endPos).getDistance() < handleTouchRadius -> {
                                     liveSelection = sel.normalized()
                                     drag(down.id) { change ->
@@ -232,7 +232,6 @@ fun TerminalCanvas(
                                     selection     = liveSelection
                                     liveSelection = null
                                 }
-                                // ── 点击空白：取消选区 ─────────────────────
                                 else -> {
                                     val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
                                         waitForUpOrCancellation()
@@ -246,7 +245,6 @@ fun TerminalCanvas(
                         }
                     }
                 }
-                // ── 滚动（独立 pointerInput，与选择手势并行不冲突）
                 .pointerInput(cellH) {
                     detectVerticalDragGestures(
                         onDragStart  = { dragAccumPx = 0f },
@@ -278,9 +276,11 @@ fun TerminalCanvas(
                     }
                 }
         ) {
-            // draw-phase 依赖：IO 线程写 drawTickState → 仅重跑 draw lambda
             @Suppress("UNUSED_EXPRESSION")
             drawTickState.longValue
+            // Re-read blink state so draw phase depends on it
+            @Suppress("UNUSED_EXPRESSION")
+            cursorVisible
 
             val screen  = synchronized(emulator) { emulator.screen }
             val colors  = emulator.mColors
@@ -314,14 +314,14 @@ fun TerminalCanvas(
                 ).also { it.isAccessible = true }.invoke(null, 0, 15, 0) as Long
             } catch (_: Exception) { 0L }
 
-            // ── 渲染终端行 ────────────────────────────────────────────────
+            // ── Render rows ──────────────────────────────────────────────
             for (row in 0 until rows) {
                 val externalRow = row - effectiveScroll
                 val line: TerminalRow = try {
                     mLines[screen.externalToInternalRow(externalRow)] ?: continue
                 } catch (_: Exception) { continue }
 
-                val showCursor = effectiveScroll == 0 && row == cursorRow
+                val showCursorCell = effectiveScroll == 0 && row == cursorRow && cursorVisible
 
                 var charIndex = 0
                 var col = 0
@@ -354,12 +354,17 @@ fun TerminalCanvas(
 
                     var fg = resolveColor(fgIdx, true,  colors)
                     var bg = resolveColor(bgIdx, false, colors)
-                    if (fgIdx == 0)  fg = 0xFF000000.toInt()
-                    if (bgIdx == 15) bg = 0xFFFFFFFF.toInt()
+                    // Map default palette indices to the active scheme
+                    if (fgIdx == 0)  fg = defaultFg
+                    if (bgIdx == 15) bg = defaultBg
 
                     if (isInverse) { val t = fg; fg = bg; bg = t }
-                    val isCursor = showCursor && col == cursorCol
-                    if (isCursor)  { val t = fg; fg = bg; bg = t }
+
+                    val isCursor = showCursorCell && col == cursorCol
+                    // For BLOCK cursor we invert; for other styles we draw overlay later
+                    if (isCursor && appearance.cursorStyle == CursorStyle.BLOCK) {
+                        val t = fg; fg = bg; bg = cursorColor
+                    }
 
                     val charWidth = com.termux.terminal.WcWidth.width(codePoint)
                     val widthCols = if (charWidth > 0) charWidth else 1
@@ -367,7 +372,7 @@ fun TerminalCanvas(
                     val cellX     = col * cellW
                     val cellY     = row * cellH
 
-                    if (bg != 0xFFFFFFFF.toInt() || isCursor) {
+                    if (bg != defaultBg || (isCursor && appearance.cursorStyle == CursorStyle.BLOCK)) {
                         drawRect(Color(bg), Offset(cellX, cellY), Size(cellSpanW, cellH))
                     }
 
@@ -393,13 +398,23 @@ fun TerminalCanvas(
                     }
                     col += widthCols
                 }
+
+                // Draw non-block cursor overlay after the row's characters
+                if (showCursorCell && appearance.cursorStyle != CursorStyle.BLOCK) {
+                    drawCursorOverlay(
+                        style = appearance.cursorStyle,
+                        color = Color(cursorColor),
+                        col = cursorCol,
+                        row = row,
+                        cellW = cellW,
+                        cellH = cellH
+                    )
+                }
             }
 
-            // ── 文字选择：高亮 + 手柄 ────────────────────────────────────
-            // displaySel = liveSelection ?: selection，拖动时实时反映手柄位置
+            // ── Selection highlight + handles ────────────────────────────
             val sel = (liveSelection ?: selection)?.normalized()
             if (sel != null) {
-                val selHighlight = Color(0x550099FF)
                 val handleColor  = Color(0xFF1A73E8)
                 val strokeW      = 2.5f
 
@@ -410,13 +425,12 @@ fun TerminalCanvas(
                     val toCol   = if (extRow == sel.endRow)   sel.endCol   else cols - 1
                     if (fromCol > toCol) continue
                     drawRect(
-                        selHighlight,
+                        selectionColor,
                         Offset(fromCol * cellW, visRow * cellH),
                         Size((toCol - fromCol + 1) * cellW, cellH)
                     )
                 }
 
-                // 起始手柄
                 val svVis = sel.startRow + effectiveScroll
                 if (svVis in -1..rows) {
                     val hx = sel.startCol * cellW
@@ -425,7 +439,6 @@ fun TerminalCanvas(
                     drawCircle(handleColor, handleRadius, Offset(hx, hy))
                 }
 
-                // 结束手柄
                 val evVis = sel.endRow + effectiveScroll
                 if (evVis in -1..rows) {
                     val hx = (sel.endCol + 1) * cellW
@@ -436,7 +449,6 @@ fun TerminalCanvas(
             }
         } // end Canvas
 
-        // ── 复制弹窗（用 selection，不用 liveSelection，拖动时弹窗不乱跳）
         val commitSel = selection?.normalized()
         if (commitSel != null) {
             val visStartRow = (commitSel.startRow + scrollRows).coerceAtLeast(0)
@@ -481,6 +493,27 @@ fun TerminalCanvas(
                 }
             }
         }
+    }
+}
+
+private fun DrawScope.drawCursorOverlay(
+    style: CursorStyle,
+    color: Color,
+    col: Int,
+    row: Int,
+    cellW: Float,
+    cellH: Float
+) {
+    val x = col * cellW
+    val y = row * cellH
+    when (style) {
+        CursorStyle.UNDERLINE -> {
+            drawRect(color, Offset(x, y + cellH - 2.5f), Size(cellW, 2.5f))
+        }
+        CursorStyle.BAR -> {
+            drawRect(color, Offset(x, y), Size(2.5f, cellH))
+        }
+        CursorStyle.BLOCK -> { /* handled via cell invert */ }
     }
 }
 
