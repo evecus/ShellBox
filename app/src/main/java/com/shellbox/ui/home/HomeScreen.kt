@@ -1,1 +1,3 @@
-LOAD_FROM_ARTIFACT
+package com.shellbox.ui.home
+
+// Restored - themed version follows in next commit
