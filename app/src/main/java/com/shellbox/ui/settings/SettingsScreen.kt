@@ -11,8 +11,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,14 +26,14 @@ import com.shellbox.ui.terminal.TerminalSettingsStore
 import com.shellbox.ui.theme.Blue40
 
 /**
- * Top-level settings screen: an index of entries (font, virtual keys,
+ * Top-level settings screen: an index of entries (appearance, virtual keys,
  * connection & security, ...) that drill into their own dedicated screens.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onOpenFontSettings: () -> Unit = {},
+    onOpenAppearanceSettings: () -> Unit = {},
     onOpenKeySettings: () -> Unit = {},
     onOpenKnownHosts: () -> Unit = {}
 ) {
@@ -71,7 +71,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
 
             // ---------------------------------------------------------
-            // 字体设置入口
+            // 外观与个性化
             // ---------------------------------------------------------
             SectionHeader("外观")
             Spacer(Modifier.height(10.dp))
@@ -81,22 +81,22 @@ fun SettingsScreen(
                 border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onOpenFontSettings)
+                    .clickable(onClick = onOpenAppearanceSettings)
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Outlined.TextFields,
+                        Icons.Outlined.Palette,
                         contentDescription = null,
                         tint = Blue40,
                         modifier = Modifier.size(22.dp)
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("字体设置", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
-                        Text("终端字体样式与字号", fontSize = 12.sp,
+                        Text("外观与个性化", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
+                        Text("主题、字体、光标、行间距等", fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(
@@ -235,5 +235,3 @@ private fun SectionHeader(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
-
-

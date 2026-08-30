@@ -26,6 +26,7 @@ import com.shellbox.service.SshKeepAliveService
 import com.shellbox.ssh.SshManager
 import com.shellbox.ui.addserver.AddServerScreen
 import com.shellbox.ui.home.HomeScreen
+import com.shellbox.ui.settings.AppearanceSettingsScreen
 import com.shellbox.ui.settings.FontSettingsScreen
 import com.shellbox.ui.settings.KeySettingsScreen
 import com.shellbox.ui.settings.KnownHostsScreen
@@ -123,12 +124,17 @@ fun ShellBoxNavGraph(
         composable("settings") {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenFontSettings = { navController.navigate("font_settings") },
+                onOpenAppearanceSettings = { navController.navigate("appearance_settings") },
                 onOpenKeySettings = { navController.navigate("key_settings") },
                 onOpenKnownHosts = { navController.navigate("known_hosts") }
             )
         }
 
+        composable("appearance_settings") {
+            AppearanceSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        // Keep old font_settings route for backward compatibility / deep links
         composable("font_settings") {
             FontSettingsScreen(onBack = { navController.popBackStack() })
         }
