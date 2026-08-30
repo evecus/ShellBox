@@ -3,7 +3,13 @@ package com.shellbox.ui.terminal
 import android.content.Context
 import android.graphics.Typeface
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Available terminal fonts.
@@ -34,26 +40,91 @@ object TerminalFontDefaults {
 
 /**
  * Lightweight SharedPreferences-backed store for terminal display settings.
- * Exposed both as a StateFlow (for ViewModels) and as Compose state holders
- * (for the settings screen) so either layer can read/write without ceremony.
+ * Exposes both granular StateFlows (for backward compatibility) and a unified
+ * [appearance] StateFlow that the new Appearance settings page and TerminalCanvas use.
  */
 class TerminalSettingsStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
 
-    private val _fontSize = MutableStateFlow(
-        prefs.getFloat(KEY_FONT_SIZE, TerminalFontDefaults.DEFAULT_SIZE)
-    )
-    val fontSize = _fontSize.asStateFlow()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val _font = MutableStateFlow(
-        TerminalFont.fromId(prefs.getString(KEY_FONT, TerminalFont.SYSTEM.id) ?: TerminalFont.SYSTEM.id)
-    )
-    val font = _font.asStateFlow()
+    // ── Unified appearance ───────────────────────────────────────────────────
 
-    // Whether the user has opted in to the foreground "keep connections alive in background"
-    // service. Off by default — starting a foreground service (and its persistent notification)
-    // is something the user should explicitly choose, not something ShellBox does silently.
+    private fun loadAppearance(): TerminalAppearance = TerminalAppearance(
+        schemeId = prefs.getString(KEY_SCHEME, TerminalColorSchemes.LIGHT.id)
+            ?: TerminalColorSchemes.LIGHT.id,
+        font = TerminalFont.fromId(
+            prefs.getString(KEY_FONT, TerminalFont.SYSTEM.id) ?: TerminalFont.SYSTEM.id
+        ),
+        fontSize = prefs.getFloat(KEY_FONT_SIZE, TerminalFontDefaults.DEFAULT_SIZE),
+        lineSpacing = prefs.getFloat(KEY_LINE_SPACING, 1.05f)
+            .coerceIn(TerminalAppearance.LINE_SPACING_MIN, TerminalAppearance.LINE_SPACING_MAX),
+        cursorStyle = CursorStyle.fromId(
+            prefs.getString(KEY_CURSOR_STYLE, CursorStyle.BLOCK.id) ?: CursorStyle.BLOCK.id
+        ),
+        cursorBlink = prefs.getBoolean(KEY_CURSOR_BLINK, true),
+        scrollbackLines = prefs.getInt(KEY_SCROLLBACK, 2000),
+        hapticFeedback = prefs.getBoolean(KEY_HAPTIC, true),
+        bellVibrate = prefs.getBoolean(KEY_BELL_VIBRATE, true)
+    )
+
+    private val _appearance = MutableStateFlow(loadAppearance())
+    val appearance: StateFlow<TerminalAppearance> = _appearance.asStateFlow()
+
+    fun updateAppearance(transform: (TerminalAppearance) -> TerminalAppearance) {
+        val next = transform(_appearance.value)
+        _appearance.value = next
+        persist(next)
+    }
+
+    fun setAppearance(value: TerminalAppearance) {
+        _appearance.value = value
+        persist(value)
+    }
+
+    private fun persist(a: TerminalAppearance) {
+        prefs.edit()
+            .putString(KEY_SCHEME, a.schemeId)
+            .putString(KEY_FONT, a.font.id)
+            .putFloat(KEY_FONT_SIZE, a.fontSize)
+            .putFloat(KEY_LINE_SPACING, a.lineSpacing)
+            .putString(KEY_CURSOR_STYLE, a.cursorStyle.id)
+            .putBoolean(KEY_CURSOR_BLINK, a.cursorBlink)
+            .putInt(KEY_SCROLLBACK, a.scrollbackLines)
+            .putBoolean(KEY_HAPTIC, a.hapticFeedback)
+            .putBoolean(KEY_BELL_VIBRATE, a.bellVibrate)
+            .apply()
+    }
+
+    // ── Backward-compatible granular flows ───────────────────────────────────
+    // Existing screens (FontSettingsScreen, TerminalScreen) still read these.
+
+    val fontSize: StateFlow<Float> = _appearance
+        .map { it.fontSize }
+        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, _appearance.value.fontSize)
+
+    val font: StateFlow<TerminalFont> = _appearance
+        .map { it.font }
+        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, _appearance.value.font)
+
+    fun setFontSize(size: Float) {
+        updateAppearance {
+            it.copy(
+                fontSize = size.coerceIn(
+                    TerminalFontDefaults.MIN_SIZE,
+                    TerminalFontDefaults.MAX_SIZE
+                )
+            )
+        }
+    }
+
+    fun setFont(font: TerminalFont) {
+        updateAppearance { it.copy(font = font) }
+    }
+
+    // ── Keep-alive (unchanged, independent of appearance) ────────────────────
+
     private val _keepAliveServiceEnabled = MutableStateFlow(
         prefs.getBoolean(KEY_KEEP_ALIVE_SERVICE, false)
     )
@@ -64,26 +135,21 @@ class TerminalSettingsStore(context: Context) {
         prefs.edit().putBoolean(KEY_KEEP_ALIVE_SERVICE, enabled).apply()
     }
 
-    fun setFontSize(size: Float) {
-        val clamped = size.coerceIn(TerminalFontDefaults.MIN_SIZE, TerminalFontDefaults.MAX_SIZE)
-        _fontSize.value = clamped
-        prefs.edit().putFloat(KEY_FONT_SIZE, clamped).apply()
-    }
-
-    fun setFont(font: TerminalFont) {
-        _font.value = font
-        prefs.edit().putString(KEY_FONT, font.id).apply()
-    }
-
     companion object {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_FONT = "font_id"
         private const val KEY_KEEP_ALIVE_SERVICE = "keep_alive_service_enabled"
+        private const val KEY_SCHEME = "scheme_id"
+        private const val KEY_LINE_SPACING = "line_spacing"
+        private const val KEY_CURSOR_STYLE = "cursor_style"
+        private const val KEY_CURSOR_BLINK = "cursor_blink"
+        private const val KEY_SCROLLBACK = "scrollback_lines"
+        private const val KEY_HAPTIC = "haptic_feedback"
+        private const val KEY_BELL_VIBRATE = "bell_vibrate"
 
         @Volatile
         private var instance: TerminalSettingsStore? = null
 
-        /** Simple manual singleton — avoids pulling Hilt into a tiny prefs wrapper. */
         fun getInstance(context: Context): TerminalSettingsStore {
             return instance ?: synchronized(this) {
                 instance ?: TerminalSettingsStore(context).also { instance = it }
