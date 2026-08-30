@@ -1,5 +1,10 @@
 package com.shellbox.ui.terminal
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.shellbox.data.model.QuickConnect
@@ -10,6 +15,7 @@ import com.shellbox.ssh.SshResult
 import com.shellbox.ssh.SshSession
 import com.shellbox.ssh.SshTerminalBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -54,8 +60,11 @@ private const val MAX_RECONNECT_DELAY_MS = 30_000L
 @HiltViewModel
 class TerminalViewModel @Inject constructor(
     private val sshManager: SshManager,
-    private val serverRepository: ServerRepository
+    private val serverRepository: ServerRepository,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
+
+    private val settingsStore = TerminalSettingsStore.getInstance(appContext)
 
     private val _uiState = MutableStateFlow(TerminalUiState())
     val uiState: StateFlow<TerminalUiState> = _uiState.asStateFlow()
@@ -121,6 +130,7 @@ class TerminalViewModel @Inject constructor(
             val result = connectFn()
             when (result) {
                 is SshResult.Success -> {
+                    val scrollback = settingsStore.appearance.value.scrollbackLines
                     val bridge = SshTerminalBridge(
                         session = result.session,
                         cols = termCols,
@@ -137,7 +147,9 @@ class TerminalViewModel @Inject constructor(
                             updateTab(tabId) { copy(isConnected = false, isDisconnected = true) }
                             scheduleAutoReconnect(tabId)
                         },
-                        scope = viewModelScope
+                        scope = viewModelScope,
+                        transcriptRows = scrollback,
+                        onBell = { vibrateBell() }
                     )
                     bridges[tabId] = bridge
                     // 注入已注册的重绘回调（composable 可能早于 bridge 创建而注册）
@@ -162,6 +174,44 @@ class TerminalViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    /** Short vibration for terminal BEL when the user has enabled the preference. */
+    private fun vibrateBell() {
+        if (!settingsStore.appearance.value.bellVibrate) return
+        performHaptic(durationMs = 40L, amplitude = VibrationEffect.DEFAULT_AMPLITUDE)
+    }
+
+    /** Public so the UI can trigger key-press haptics without duplicating Vibrator code. */
+    fun performKeyHaptic() {
+        if (!settingsStore.appearance.value.hapticFeedback) return
+        performHaptic(durationMs = 12L, amplitude = 80)
+    }
+
+    private fun performHaptic(durationMs: Long, amplitude: Int) {
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                manager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                appContext.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            if (!vibrator.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(
+                    VibrationEffect.createOneShot(
+                        durationMs,
+                        amplitude.coerceIn(1, 255)
+                    )
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(durationMs)
+            }
+        } catch (_: Exception) {
+            // Ignore devices without vibrator permission / capability
         }
     }
 
@@ -261,6 +311,8 @@ class TerminalViewModel @Inject constructor(
         onToggleShift: () -> Unit,
         onShowKeyboard: () -> Unit
     ) {
+        // Haptic on every virtual key press when enabled
+        performKeyHaptic()
         when (config.action) {
             VKeyAction.ARROW_UP    -> sendArrow(ArrowDirection.UP)
             VKeyAction.ARROW_DOWN  -> sendArrow(ArrowDirection.DOWN)
