@@ -47,6 +47,7 @@ fun SftpScreen(
     onBack: () -> Unit,
     viewModel: SftpViewModel = hiltViewModel()
 ) {
+    val scheme = MaterialTheme.colorScheme
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
@@ -62,7 +63,6 @@ fun SftpScreen(
         }
     }
 
-    // Once a download finishes, open a chooser so the user can view/share the file.
     LaunchedEffect(state.downloadedFile) {
         val file = state.downloadedFile ?: return@LaunchedEffect
         try {
@@ -80,7 +80,6 @@ fun SftpScreen(
             }
             context.startActivity(android.content.Intent.createChooser(intent, "打开文件"))
         } catch (_: Exception) {
-            // No app can handle it — the file is still safely saved in app storage.
         } finally {
             viewModel.clearDownloadedFile()
         }
@@ -130,7 +129,12 @@ fun SftpScreen(
                             Icon(Icons.Outlined.CreateNewFolder, contentDescription = "新建文件夹")
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = scheme.surface,
+                        titleContentColor = scheme.onSurface,
+                        navigationIconContentColor = scheme.onSurface,
+                        actionIconContentColor = scheme.onSurfaceVariant
+                    )
                 )
                 if (!state.isConnecting && state.connectionError == null) {
                     Breadcrumb(
@@ -138,7 +142,7 @@ fun SftpScreen(
                         onRootClick = { viewModel.navigateToBreadcrumb(-1) },
                         onSegmentClick = { viewModel.navigateToBreadcrumb(it) }
                     )
-                    HorizontalDivider(color = Color(0xFFF0F0F3))
+                    HorizontalDivider(color = scheme.outlineVariant)
                 }
             }
         },
@@ -154,7 +158,7 @@ fun SftpScreen(
                 }
             }
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         Box(
             modifier = Modifier
@@ -213,7 +217,6 @@ fun SftpScreen(
                 }
             }
 
-            // Transfer progress overlay (upload/download)
             state.transfer?.let { transfer ->
                 TransferOverlay(transfer)
             }
@@ -308,10 +311,11 @@ private fun Breadcrumb(
     onRootClick: () -> Unit,
     onSegmentClick: (Int) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(scheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -351,6 +355,7 @@ private fun BreadcrumbChip(text: String, icon: ImageVector? = null, onClick: () 
 
 @Composable
 private fun UpRow(onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -362,11 +367,12 @@ private fun UpRow(onClick: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Text("上一级目录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    HorizontalDivider(color = Color(0xFFF5F5F8))
+    HorizontalDivider(color = scheme.outlineVariant)
 }
 
 @Composable
 private fun FileRow(entry: SftpFileEntry, onClick: () -> Unit, onMoreClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     Row(
         modifier = Modifier
@@ -410,7 +416,7 @@ private fun FileRow(entry: SftpFileEntry, onClick: () -> Unit, onMoreClick: () -
             Icon(Icons.Outlined.MoreVert, contentDescription = "更多", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    HorizontalDivider(color = Color(0xFFF5F5F8))
+    HorizontalDivider(color = scheme.outlineVariant)
 }
 
 private fun fileIconFor(name: String): ImageVector {
@@ -499,6 +505,7 @@ private fun LoadingList() {
 
 @Composable
 private fun EmptyDirectoryHint() {
+    val scheme = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -524,6 +531,7 @@ private fun EmptyDirectoryHint() {
 
 @Composable
 private fun BoxScope.TransferOverlay(transfer: TransferProgress) {
+    val scheme = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -532,7 +540,7 @@ private fun BoxScope.TransferOverlay(transfer: TransferProgress) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White)
+                .background(scheme.surface)
                 .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -572,11 +580,12 @@ private fun FileActionSheet(
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = scheme.surface)
         ) {
             Column(modifier = Modifier.padding(vertical = 12.dp)) {
                 Text(
@@ -587,7 +596,7 @@ private fun FileActionSheet(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                 )
-                HorizontalDivider(color = Color(0xFFF0F0F3))
+                HorizontalDivider(color = scheme.outlineVariant)
                 if (!entry.isDirectory) {
                     ActionSheetRow(icon = Icons.Outlined.Download, label = "下载", onClick = onDownload)
                 }
@@ -632,12 +641,13 @@ private fun NameInputDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     var value by remember { mutableStateOf(initialValue) }
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = scheme.surface)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -675,7 +685,6 @@ private fun NameInputDialog(
     }
 }
 
-/** Best-effort lookup of a content URI's display name (falls back to the URI's last path segment). */
 private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? {
     return try {
         context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
