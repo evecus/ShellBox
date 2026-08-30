@@ -52,6 +52,7 @@ fun HomeScreen(
     onOpenFiles: (Server) -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
+    val scheme = MaterialTheme.colorScheme
     val servers by viewModel.servers.collectAsState()
     var showQuickConnectDialog by remember { mutableStateOf(false) }
 
@@ -79,7 +80,7 @@ fun HomeScreen(
                             "ShellBox",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = scheme.onSurface
                         )
                     }
                 },
@@ -88,12 +89,15 @@ fun HomeScreen(
                         Icon(
                             Icons.Outlined.Settings,
                             contentDescription = "设置",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = scheme.onSurfaceVariant
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
                 )
             )
         },
@@ -110,7 +114,7 @@ fun HomeScreen(
                 Icon(Icons.Filled.Add, contentDescription = "添加", modifier = Modifier.size(26.dp))
             }
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         val widthSizeClass = LocalWindowWidthSizeClass.current
         val columns = gridColumnsFor(widthSizeClass)
@@ -143,9 +147,6 @@ fun HomeScreen(
                 }
             }
         } else {
-            // Tablet / expanded window: server cards flow into a multi-column grid
-            // instead of a single narrow list, so wide screens aren't wasted on
-            // one skinny stripe of cards down the left edge.
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier
@@ -229,6 +230,7 @@ private fun QuickConnectDialog(
     onTestConnection: (QuickConnect, (TestConnectionResult) -> Unit) -> Unit,
     onSaveServer: (QuickConnect, String) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
     var port by remember { mutableStateOf("22") }
@@ -268,14 +270,13 @@ private fun QuickConnectDialog(
                 .heightIn(max = 640.dp)
                 .shadow(4.dp, RoundedCornerShape(20.dp)),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = scheme.surface)
         ) {
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
-                // Header
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -310,7 +311,6 @@ private fun QuickConnectDialog(
                 HorizontalDivider(color = Blue90)
                 Spacer(Modifier.height(16.dp))
 
-                // Server name (optional)
                 ShellTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -321,7 +321,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Host + Port Row
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ShellTextField(
                         value = host,
@@ -344,7 +343,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Username
                 ShellTextField(
                     value = username,
                     onValueChange = { username = it; testResult = null },
@@ -355,12 +353,10 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Auth type toggle
                 AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it; testResult = null })
 
                 Spacer(Modifier.height(10.dp))
 
-                // Auth fields
                 AnimatedContent(targetState = authType, label = "auth") { type ->
                     when (type) {
                         AuthType.PASSWORD -> {
@@ -405,7 +401,6 @@ private fun QuickConnectDialog(
                     }
                 }
 
-                // Test connection result banner
                 AnimatedVisibility(visible = testResult != null) {
                     val result = testResult
                     Column {
@@ -438,8 +433,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 2x2 button grid: top-left 测试连接, top-right 快速连接,
-                // bottom-left 保存服务器, bottom-right 取消
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = {
@@ -522,7 +515,7 @@ private fun QuickConnectDialog(
                             .weight(1f)
                             .height(52.dp),
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFDDE3EA))
+                        border = BorderStroke(1.dp, scheme.outlineVariant)
                     ) {
                         Text(
                             "取消",
@@ -545,6 +538,7 @@ private fun ServerCard(
     onDelete: () -> Unit,
     onOpenFiles: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Card(
@@ -553,8 +547,8 @@ private fun ServerCard(
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .shadow(1.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF0F0F3))
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        border = BorderStroke(1.dp, scheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -563,7 +557,6 @@ private fun ServerCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -614,7 +607,6 @@ private fun ServerCard(
                 }
             }
 
-            // Action buttons
             IconButton(onClick = onOpenFiles, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Outlined.Folder, null, tint = Blue40,
                     modifier = Modifier.size(18.dp))

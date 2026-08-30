@@ -39,6 +39,7 @@ import com.shellbox.ui.theme.Blue95
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KeySettingsScreen(onBack: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val store = remember { VKeyLayoutStore.getInstance(context) }
     val layout by store.layout.collectAsState()
@@ -60,10 +61,15 @@ fun KeySettingsScreen(onBack: () -> Unit) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "恢复默认")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    navigationIconContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
+                )
             )
         },
-        containerColor = Color(0xFFF5F5F7)
+        containerColor = scheme.background
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         Column(modifier = Modifier.fillMaxSize().widthIn(max = com.shellbox.ui.util.MaxFormContentWidth * 1.4f)) {
@@ -71,7 +77,7 @@ fun KeySettingsScreen(onBack: () -> Unit) {
             // Tab 切换
             TabRow(
                 selectedTabIndex = selectedTab,
-                containerColor = Color.White,
+                containerColor = scheme.surface,
                 contentColor = Blue40,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
@@ -244,13 +250,14 @@ private fun KeyItemRow(
     onDragEnd: () -> Unit,
     onDragBy: (Float) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(elevation, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onEdit),
-        colors = CardDefaults.cardColors(containerColor = if (isDragging) Blue95 else Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (isDragging) Blue95 else scheme.surface),
         shape = RoundedCornerShape(14.dp),
         border = if (isDragging) BorderStroke(1.5.dp, Blue40) else null
     ) {
@@ -286,7 +293,7 @@ private fun KeyItemRow(
                     actionLabel(config),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.Black
+                    color = scheme.onSurface
                 )
                 if (config.action == VKeyAction.SEND_TEXT && config.payload.isNotEmpty()) {
                     Text(
@@ -332,12 +339,13 @@ private fun KeyItemRow(
 // ---------------------------------------------------------------------------
 @Composable
 private fun AddKeyButton(onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(Color.White)
+            .background(scheme.surface)
             .border(
                 width = 1.5.dp,
                 color = Blue40.copy(alpha = 0.4f),
@@ -365,6 +373,7 @@ private fun KeyEditDialog(
     onConfirm: (VKeyConfig) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     var display  by remember { mutableStateOf(initial.display) }
     var action   by remember { mutableStateOf(initial.action) }
     var payload  by remember { mutableStateOf(initial.payload) }
@@ -395,7 +404,7 @@ private fun KeyEditDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            colors = CardDefaults.cardColors(containerColor = scheme.surface),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
@@ -434,7 +443,7 @@ private fun KeyEditDialog(
                     ExposedDropdownMenu(
                         expanded = expanded,
                         onDismissRequest = { expanded = false },
-                        modifier = Modifier.background(Color.White)
+                        modifier = Modifier.background(scheme.surface)
                     ) {
                         actionGroups.forEach { (groupName, groupActions) ->
                             // 分组标题（不可点击）
@@ -449,7 +458,7 @@ private fun KeyEditDialog(
                                 },
                                 onClick = {},
                                 enabled = false,
-                                modifier = Modifier.background(Color(0xFFF5F5F7))
+                                modifier = Modifier.background(scheme.surfaceVariant)
                             )
                             // 分组内各选项
                             groupActions.forEach { a ->
@@ -459,7 +468,7 @@ private fun KeyEditDialog(
                                         Text(
                                             a.displayName,
                                             fontSize = 14.sp,
-                                            color = if (isSelected) Blue40 else Color.Black,
+                                            color = if (isSelected) Blue40 else scheme.onSurface,
                                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                                         )
                                     },
