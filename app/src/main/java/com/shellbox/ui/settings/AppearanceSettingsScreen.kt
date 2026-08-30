@@ -11,6 +11,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -26,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -40,11 +42,6 @@ import com.shellbox.ui.theme.Blue95
 import com.shellbox.ui.util.MaxFormContentWidth
 import kotlin.math.roundToInt
 
-/**
- * Unified Appearance & Personalization settings screen.
- * Covers color schemes (including custom), font, line spacing, cursor,
- * scrollback, and haptics. All changes apply immediately.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppearanceSettingsScreen(
@@ -53,6 +50,7 @@ fun AppearanceSettingsScreen(
     val context = LocalContext.current
     val store = remember { TerminalSettingsStore.getInstance(context) }
     val appearance by store.appearance.collectAsState()
+    val systemDark = isSystemInDarkTheme()
 
     var fontSizeSlider by remember(appearance.fontSize) {
         mutableFloatStateOf(appearance.fontSize)
@@ -60,7 +58,6 @@ fun AppearanceSettingsScreen(
     var lineSpacingSlider by remember(appearance.lineSpacing) {
         mutableFloatStateOf(appearance.lineSpacing)
     }
-    // Which custom color slot is being edited: "bg" | "fg" | "cursor"
     var editingSlot by remember { mutableStateOf("bg") }
 
     Scaffold(
@@ -74,10 +71,12 @@ fun AppearanceSettingsScreen(
                         Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         },
-        containerColor = Color.White
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Box(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -96,27 +95,88 @@ fun AppearanceSettingsScreen(
                     appearance = appearance.copy(
                         fontSize = fontSizeSlider,
                         lineSpacing = lineSpacingSlider
-                    )
+                    ),
+                    systemDark = systemDark
                 )
+
+                Spacer(Modifier.height(28.dp))
+
+                // ── Follow system ────────────────────────────────────────
+                SectionHeader("跟随系统")
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column {
+                        ToggleRow(
+                            title = "终端跟随系统深色模式",
+                            subtitle = if (appearance.followSystemTheme) {
+                                "当前：${if (systemDark) "暗色" else "白底黑字"}（自定义主题优先）"
+                            } else {
+                                "系统深色时用暗色主题，浅色时用白底黑字"
+                            },
+                            checked = appearance.followSystemTheme,
+                            onCheckedChange = {
+                                store.updateAppearance { a -> a.copy(followSystemTheme = it) }
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        ToggleRow(
+                            title = "应用界面跟随系统",
+                            subtitle = "设置、主页等 Material 界面随系统深浅色切换",
+                            checked = appearance.appFollowSystemTheme,
+                            onCheckedChange = {
+                                store.updateAppearance { a -> a.copy(appFollowSystemTheme = it) }
+                            }
+                        )
+                    }
+                }
 
                 Spacer(Modifier.height(28.dp))
 
                 // ── Theme presets ────────────────────────────────────────
                 SectionHeader("主题")
+                if (appearance.followSystemTheme && !appearance.isCustomScheme) {
+                    Text(
+                        "已开启跟随系统，下方手动选择将关闭该选项",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.heightIn(max = 420.dp),
+                    modifier = Modifier
+                        .heightIn(max = 420.dp)
+                        .alpha(
+                            if (appearance.followSystemTheme && !appearance.isCustomScheme) 0.55f else 1f
+                        ),
                     userScrollEnabled = false
                 ) {
                     items(TerminalColorSchemes.ALL, key = { it.id }) { scheme ->
+                        val effectiveId = appearance.resolvedScheme(systemDark).id
                         ThemeOptionCard(
                             scheme = scheme,
-                            isSelected = scheme.id == appearance.schemeId,
+                            isSelected = if (appearance.followSystemTheme && !appearance.isCustomScheme) {
+                                scheme.id == effectiveId
+                            } else {
+                                scheme.id == appearance.schemeId
+                            },
                             onClick = {
-                                store.updateAppearance { it.copy(schemeId = scheme.id) }
+                                store.updateAppearance {
+                                    it.copy(
+                                        schemeId = scheme.id,
+                                        followSystemTheme = false
+                                    )
+                                }
                             }
                         )
                     }
@@ -124,13 +184,15 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Custom theme entry
                 CustomThemeCard(
                     appearance = appearance,
                     isSelected = appearance.isCustomScheme,
                     onSelect = {
                         store.updateAppearance {
-                            it.copy(schemeId = TerminalColorSchemes.CUSTOM_ID)
+                            it.copy(
+                                schemeId = TerminalColorSchemes.CUSTOM_ID,
+                                followSystemTheme = false
+                            )
                         }
                     }
                 )
@@ -149,15 +211,18 @@ fun AppearanceSettingsScreen(
                                 when (editingSlot) {
                                     "fg" -> a.copy(
                                         schemeId = TerminalColorSchemes.CUSTOM_ID,
-                                        customFg = color
+                                        customFg = color,
+                                        followSystemTheme = false
                                     )
                                     "cursor" -> a.copy(
                                         schemeId = TerminalColorSchemes.CUSTOM_ID,
-                                        customCursor = color
+                                        customCursor = color,
+                                        followSystemTheme = false
                                     )
                                     else -> a.copy(
                                         schemeId = TerminalColorSchemes.CUSTOM_ID,
-                                        customBg = color
+                                        customBg = color,
+                                        followSystemTheme = false
                                     )
                                 }
                             }
@@ -167,7 +232,6 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Font size ────────────────────────────────────────────
                 SectionHeader("字体大小")
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -192,25 +256,9 @@ fun AppearanceSettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 48.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        "${TerminalFontDefaults.MIN_SIZE.roundToInt()}sp",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "${TerminalFontDefaults.MAX_SIZE.roundToInt()}sp",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
 
                 Spacer(Modifier.height(24.dp))
 
-                // ── Line spacing ─────────────────────────────────────────
                 SectionHeader("行间距")
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -247,7 +295,6 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Font family ──────────────────────────────────────────
                 SectionHeader("终端字体")
                 Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
@@ -268,13 +315,14 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Cursor ───────────────────────────────────────────────
                 SectionHeader("光标")
                 Spacer(Modifier.height(10.dp))
                 Card(
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
@@ -287,11 +335,11 @@ fun AppearanceSettingsScreen(
                             CursorStyle.entries.forEach { style ->
                                 val selected = style == appearance.cursorStyle
                                 val bg by animateColorAsState(
-                                    if (selected) Blue40 else Color(0xFFF0F0F3),
+                                    if (selected) Blue40 else MaterialTheme.colorScheme.surfaceVariant,
                                     tween(150), label = "cursor_style_bg"
                                 )
                                 val fg by animateColorAsState(
-                                    if (selected) Color.White else Color.Black,
+                                    if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
                                     tween(150), label = "cursor_style_fg"
                                 )
                                 Box(
@@ -317,47 +365,29 @@ fun AppearanceSettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(color = Color(0xFFE5E5EA))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "光标闪烁",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = Color.Black
-                                )
-                                Text(
-                                    "光标以固定频率闪烁提示位置",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        ToggleRow(
+                            title = "光标闪烁",
+                            subtitle = "光标以固定频率闪烁提示位置",
+                            checked = appearance.cursorBlink,
+                            onCheckedChange = {
+                                store.updateAppearance { a -> a.copy(cursorBlink = it) }
                             }
-                            Switch(
-                                checked = appearance.cursorBlink,
-                                onCheckedChange = {
-                                    store.updateAppearance { a -> a.copy(cursorBlink = it) }
-                                },
-                                colors = SwitchDefaults.colors(checkedTrackColor = Blue40)
-                            )
-                        }
+                        )
                     }
                 }
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Behaviour ────────────────────────────────────────────
                 SectionHeader("终端行为")
                 Spacer(Modifier.height(10.dp))
                 Card(
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column {
@@ -370,7 +400,7 @@ fun AppearanceSettingsScreen(
                                 "滚动历史行数",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 14.sp,
-                                color = Color.Black
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 "终端可向上回滚的最大行数（新建会话后生效）",
@@ -385,11 +415,11 @@ fun AppearanceSettingsScreen(
                                 TerminalAppearance.SCROLLBACK_OPTIONS.forEach { lines ->
                                     val selected = lines == appearance.scrollbackLines
                                     val bg by animateColorAsState(
-                                        if (selected) Blue40 else Color(0xFFF0F0F3),
+                                        if (selected) Blue40 else MaterialTheme.colorScheme.surfaceVariant,
                                         tween(150), label = "scrollback_bg"
                                     )
                                     val fg by animateColorAsState(
-                                        if (selected) Color.White else Color.Black,
+                                        if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
                                         tween(150), label = "scrollback_fg"
                                     )
                                     Box(
@@ -416,7 +446,7 @@ fun AppearanceSettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(color = Color(0xFFE5E5EA))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                         ToggleRow(
                             title = "虚拟键震动",
@@ -427,7 +457,7 @@ fun AppearanceSettingsScreen(
                             }
                         )
 
-                        HorizontalDivider(color = Color(0xFFE5E5EA))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                         ToggleRow(
                             title = "终端响铃震动",
@@ -446,10 +476,6 @@ fun AppearanceSettingsScreen(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Custom theme UI
-// ---------------------------------------------------------------------------
-
 @Composable
 private fun CustomThemeCard(
     appearance: TerminalAppearance,
@@ -460,7 +486,7 @@ private fun CustomThemeCard(
         appearance.customBg, appearance.customFg, appearance.customCursor
     )
     val borderColor by animateColorAsState(
-        if (isSelected) Blue40 else Color(0xFFE5E5EA),
+        if (isSelected) Blue40 else MaterialTheme.colorScheme.outlineVariant,
         tween(150), label = "custom_border"
     )
     Card(
@@ -529,16 +555,11 @@ private fun CustomColorEditor(
     onPickColor: (Long) -> Unit
 ) {
     Column(modifier = Modifier.padding(top = 12.dp)) {
-        // Slot tabs
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf(
-                "bg" to "背景",
-                "fg" to "前景",
-                "cursor" to "光标"
-            ).forEach { (slot, label) ->
+            listOf("bg" to "背景", "fg" to "前景", "cursor" to "光标").forEach { (slot, label) ->
                 val selected = editingSlot == slot
                 val current = when (slot) {
                     "fg" -> appearance.customFg
@@ -546,11 +567,11 @@ private fun CustomColorEditor(
                     else -> appearance.customBg
                 }
                 val bg by animateColorAsState(
-                    if (selected) Blue40 else Color(0xFFF0F0F3),
+                    if (selected) Blue40 else MaterialTheme.colorScheme.surfaceVariant,
                     tween(150), label = "slot_bg"
                 )
                 val fg by animateColorAsState(
-                    if (selected) Color.White else Color.Black,
+                    if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
                     tween(150), label = "slot_fg"
                 )
                 Row(
@@ -584,11 +605,10 @@ private fun CustomColorEditor(
 
         Spacer(Modifier.height(12.dp))
 
-        // Palette grid
         Card(
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFFE5E5EA)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -603,7 +623,6 @@ private fun CustomColorEditor(
                     "cursor" -> appearance.customCursor
                     else -> appearance.customBg
                 }
-                // 8 columns × 4 rows
                 val rows = TerminalAppearance.COLOR_PALETTE.chunked(8)
                 rows.forEach { row ->
                     Row(
@@ -613,7 +632,8 @@ private fun CustomColorEditor(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         row.forEach { color ->
-                            val isSelected = (color and 0x00FFFFFF) == (selectedColor and 0x00FFFFFF)
+                            val isSelected =
+                                (color and 0x00FFFFFF) == (selectedColor and 0x00FFFFFF)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -632,30 +652,19 @@ private fun CustomColorEditor(
                                     Icon(
                                         Icons.Filled.Check,
                                         contentDescription = null,
-                                        tint = if ((color and 0x00FFFFFF) > 0x00800000) {
-                                            Color.Black
-                                        } else {
-                                            Color.White
-                                        },
+                                        tint = if ((color and 0x00FFFFFF) > 0x00800000) Color.Black else Color.White,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }
                             }
                         }
-                        // Pad incomplete last row
-                        repeat(8 - row.size) {
-                            Spacer(Modifier.weight(1f))
-                        }
+                        repeat(8 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Shared small components
-// ---------------------------------------------------------------------------
 
 @Composable
 private fun SectionHeader(text: String) {
@@ -681,8 +690,17 @@ private fun ToggleRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color.Black)
-            Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                subtitle,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Switch(
             checked = checked,
@@ -693,7 +711,10 @@ private fun ToggleRow(
 }
 
 @Composable
-private fun AppearancePreviewCard(appearance: TerminalAppearance) {
+private fun AppearancePreviewCard(
+    appearance: TerminalAppearance,
+    systemDark: Boolean
+) {
     val context = LocalContext.current
     val typeface = remember(appearance.font) {
         TerminalTypefaceCache.resolve(context, appearance.font)
@@ -701,7 +722,7 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
     val composeFontFamily = remember(typeface) {
         androidx.compose.ui.text.font.FontFamily(typeface)
     }
-    val scheme = appearance.scheme
+    val scheme = appearance.resolvedScheme(systemDark)
     val bg = Color(scheme.background)
     val fg = Color(scheme.foreground)
     val promptColor = if ((scheme.background and 0x00FFFFFF) > 0x00A00000) {
@@ -713,7 +734,7 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = bg),
-        border = BorderStroke(1.dp, Color(0xFFE5E5EA).copy(alpha = 0.6f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -725,7 +746,7 @@ private fun AppearancePreviewCard(appearance: TerminalAppearance) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF27C93F)))
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    scheme.name,
+                    scheme.name + if (appearance.followSystemTheme && !appearance.isCustomScheme) " · 跟随系统" else "",
                     fontSize = 11.sp,
                     color = fg.copy(alpha = 0.5f),
                     maxLines = 1,
@@ -777,20 +798,14 @@ private fun CursorPreview(
         CursorStyle.BAR -> 2.dp
     }
     when (style) {
-        CursorStyle.BLOCK -> {
-            Box(Modifier.width(w).height(h).background(color))
+        CursorStyle.BLOCK -> Box(Modifier.width(w).height(h).background(color))
+        CursorStyle.UNDERLINE -> Box(
+            Modifier.width(w).height(h),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Box(Modifier.fillMaxWidth().height(2.dp).background(color))
         }
-        CursorStyle.UNDERLINE -> {
-            Box(
-                Modifier.width(w).height(h),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Box(Modifier.fillMaxWidth().height(2.dp).background(color))
-            }
-        }
-        CursorStyle.BAR -> {
-            Box(Modifier.width(w).height(h).background(color))
-        }
+        CursorStyle.BAR -> Box(Modifier.width(w).height(h).background(color))
     }
 }
 
@@ -801,7 +816,7 @@ private fun ThemeOptionCard(
     onClick: () -> Unit
 ) {
     val borderColor by animateColorAsState(
-        if (isSelected) Blue40 else Color(0xFFE5E5EA),
+        if (isSelected) Blue40 else MaterialTheme.colorScheme.outlineVariant,
         tween(150), label = "theme_border"
     )
     Card(
@@ -844,21 +859,12 @@ private fun ThemeOptionCard(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                "Aa 你好 0123",
-                fontSize = 13.sp,
-                color = Color(scheme.foreground),
-                maxLines = 1
-            )
+            Text("Aa 你好 0123", fontSize = 13.sp, color = Color(scheme.foreground), maxLines = 1)
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 listOf(
-                    scheme.background,
-                    scheme.foreground,
-                    scheme.cursor,
-                    0xFFCC0000L,
-                    0xFF4E9A06L,
-                    0xFF3465A4L
+                    scheme.background, scheme.foreground, scheme.cursor,
+                    0xFFCC0000L, 0xFF4E9A06L, 0xFF3465A4L
                 ).forEach { c ->
                     Box(
                         Modifier
@@ -888,11 +894,11 @@ private fun FontOptionCard(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) Blue95 else Color.White
+            containerColor = if (isSelected) Blue95 else MaterialTheme.colorScheme.surface
         ),
         border = BorderStroke(
             width = if (isSelected) 1.5.dp else 1.dp,
-            color = if (isSelected) Blue40 else Color(0xFFE5E5EA)
+            color = if (isSelected) Blue40 else MaterialTheme.colorScheme.outlineVariant
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -907,7 +913,7 @@ private fun FontOptionCard(
                     font.displayName,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
-                    color = if (isSelected) Blue40 else Color.Black
+                    color = if (isSelected) Blue40 else MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
