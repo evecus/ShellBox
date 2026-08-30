@@ -57,6 +57,7 @@ fun TerminalScreen(
     onOpenSftp: (ConnectionSource) -> Unit = {},
     viewModel: TerminalViewModel = hiltViewModel()
 ) {
+    val scheme = MaterialTheme.colorScheme
     val uiState by viewModel.uiState.collectAsState()
     var ctrlPressed  by remember { mutableStateOf(false) }
     var altPressed   by remember { mutableStateOf(false) }
@@ -71,7 +72,6 @@ fun TerminalScreen(
     val terminalFont  = appearance.font
     val vkeyLayout    by vkeyStore.layout.collectAsState()
 
-    // 用零宽字符作为哨兵，避免输入法把空文本框识别为"词尾"并在下一字符前插入空格。
     val SENTINEL = "\u200B"
     var inputValue by remember { mutableStateOf(TextFieldValue(SENTINEL, selection = androidx.compose.ui.text.TextRange(SENTINEL.length))) }
 
@@ -104,12 +104,17 @@ fun TerminalScreen(
                             }
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = scheme.surface,
+                        titleContentColor = scheme.onSurface,
+                        navigationIconContentColor = scheme.onSurface,
+                        actionIconContentColor = scheme.onSurfaceVariant
+                    )
                 )
-                HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+                HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
             }
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
@@ -223,7 +228,7 @@ fun TerminalScreen(
                     exit = fadeOut(tween(120)) + shrinkVertically(tween(120))
                 ) {
                     Column {
-                        HorizontalDivider(color = Color(0xFFE0E0E0), thickness = 1.dp)
+                        HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
                         DynamicVirtualKeyboard(
                             layout = vkeyLayout,
                             modifier = Modifier.fillMaxWidth(),
@@ -372,9 +377,10 @@ private fun DynamicVirtualKeyboard(
     shiftPressed: Boolean,
     onKey: (VKeyConfig) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .background(Color.White)
+            .background(scheme.surface)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
@@ -435,16 +441,17 @@ private fun VKey(
     modifier: Modifier = Modifier,
     isActive: Boolean = false
 ) {
+    val scheme = MaterialTheme.colorScheme
     val bgColor by animateColorAsState(
-        targetValue = if (isActive) Blue40 else Color.White,
+        targetValue = if (isActive) Blue40 else scheme.surface,
         animationSpec = tween(150), label = "vkey_bg"
     )
     val textColor by animateColorAsState(
-        targetValue = if (isActive) Color.White else Color.Black,
+        targetValue = if (isActive) Color.White else scheme.onSurface,
         animationSpec = tween(150), label = "vkey_text"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isActive) Color.Transparent else Color.Black,
+        targetValue = if (isActive) Color.Transparent else scheme.outline,
         animationSpec = tween(150), label = "vkey_border"
     )
     Box(
@@ -478,10 +485,11 @@ private fun TerminalTabRow(
     onCloseTab: (Int) -> Unit,
     onAddTab: () -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White)
+            .background(scheme.surface)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -493,11 +501,11 @@ private fun TerminalTabRow(
             itemsIndexed(tabs) { index, tab ->
                 val isActive = index == activeIndex
                 val bgColor by animateColorAsState(
-                    if (isActive) Blue40 else Color(0xFFF0F0F3),
+                    if (isActive) Blue40 else scheme.surfaceVariant,
                     animationSpec = tween(200), label = "tab_color"
                 )
                 val textColor by animateColorAsState(
-                    if (isActive) Color.White else Color.Black,
+                    if (isActive) Color.White else scheme.onSurface,
                     animationSpec = tween(200), label = "tab_text"
                 )
                 Row(
@@ -538,35 +546,37 @@ private fun TerminalTabRow(
             modifier = Modifier
                 .size(26.dp)
                 .clip(CircleShape)
-                .background(Color(0xFFF0F0F3))
+                .background(scheme.surfaceVariant)
                 .clickable(onClick = onAddTab),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.Add, contentDescription = "新建终端", tint = Color.Black, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Add, contentDescription = "新建终端", tint = scheme.onSurface, modifier = Modifier.size(16.dp))
         }
     }
 }
 
 @Composable
 private fun ConnectingIndicator(label: String) {
+    val scheme = MaterialTheme.colorScheme
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator(color = Blue40, strokeWidth = 3.dp)
             Spacer(Modifier.height(16.dp))
-            Text("正在连接 $label...", color = Color(0xFF666666))
+            Text("正在连接 $label...", color = scheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
 private fun ErrorDisplay(error: String, onBack: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Outlined.Error, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(56.dp))
             Spacer(Modifier.height(16.dp))
-            Text("连接失败", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+            Text("连接失败", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = scheme.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text(error, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF666666),
+            Text(error, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(24.dp))
             OutlinedButton(onClick = onBack, border = BorderStroke(1.5.dp, Blue40)) {
@@ -578,11 +588,12 @@ private fun ErrorDisplay(error: String, onBack: () -> Unit) {
 
 @Composable
 private fun EmptyTerminalPlaceholder(onBack: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Outlined.Computer, null, tint = Blue40, modifier = Modifier.size(48.dp))
             Spacer(Modifier.height(12.dp))
-            Text("没有活跃的连接", style = MaterialTheme.typography.titleMedium, color = Color.Black)
+            Text("没有活跃的连接", style = MaterialTheme.typography.titleMedium, color = scheme.onSurface)
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = onBack) { Text("返回主页") }
         }
@@ -596,9 +607,10 @@ private fun NewTerminalSheet(
     onDismiss: () -> Unit,
     onSelectServer: (Server) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color.White
+        containerColor = scheme.surface
     ) {
         Column(
             modifier = Modifier
@@ -610,7 +622,7 @@ private fun NewTerminalSheet(
                 "新建终端",
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
-                color = Color.Black,
+                color = scheme.onSurface,
                 modifier = Modifier.padding(vertical = 12.dp)
             )
             if (servers.isEmpty()) {
@@ -618,7 +630,7 @@ private fun NewTerminalSheet(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("暂无已保存的服务器", color = Color(0xFF999999))
+                    Text("暂无已保存的服务器", color = scheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumnServerList(servers = servers, onSelectServer = onSelectServer)
@@ -632,6 +644,7 @@ private fun LazyColumnServerList(
     servers: List<Server>,
     onSelectServer: (Server) -> Unit
 ) {
+    val scheme = MaterialTheme.colorScheme
     LazyColumn(
         modifier = Modifier.heightIn(max = 420.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -658,7 +671,7 @@ private fun LazyColumnServerList(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         server.name,
-                        color = Color.Black,
+                        color = scheme.onSurface,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -666,7 +679,7 @@ private fun LazyColumnServerList(
                     )
                     Text(
                         "${server.username}@${server.host}:${server.port}",
-                        color = Color(0xFF999999),
+                        color = scheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
