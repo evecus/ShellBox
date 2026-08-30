@@ -72,7 +72,9 @@ fun AppearanceSettingsScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface
                 )
             )
         },
@@ -101,8 +103,8 @@ fun AppearanceSettingsScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                // ── Follow system ────────────────────────────────────────
-                SectionHeader("跟随系统")
+                // ── App theme mode ───────────────────────────────────────
+                SectionHeader("应用界面主题")
                 Spacer(Modifier.height(10.dp))
                 Card(
                     shape = RoundedCornerShape(14.dp),
@@ -112,35 +114,81 @@ fun AppearanceSettingsScreen(
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column {
-                        ToggleRow(
-                            title = "终端跟随系统深色模式",
-                            subtitle = if (appearance.followSystemTheme) {
-                                "当前：${if (systemDark) "暗色" else "白底黑字"}（自定义主题优先）"
-                            } else {
-                                "系统深色时用暗色主题，浅色时用白底黑字"
-                            },
-                            checked = appearance.followSystemTheme,
-                            onCheckedChange = {
-                                store.updateAppearance { a -> a.copy(followSystemTheme = it) }
-                            }
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "主页、设置等界面的明暗模式",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 10.dp)
                         )
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                        ToggleRow(
-                            title = "应用界面跟随系统",
-                            subtitle = "设置、主页等 Material 界面随系统深浅色切换",
-                            checked = appearance.appFollowSystemTheme,
-                            onCheckedChange = {
-                                store.updateAppearance { a -> a.copy(appFollowSystemTheme = it) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AppThemeMode.entries.forEach { mode ->
+                                val selected = mode == appearance.appThemeMode
+                                val bg by animateColorAsState(
+                                    if (selected) Blue40 else MaterialTheme.colorScheme.surfaceVariant,
+                                    tween(150), label = "app_theme_bg"
+                                )
+                                val fg by animateColorAsState(
+                                    if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    tween(150), label = "app_theme_fg"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(bg)
+                                        .clickable {
+                                            store.updateAppearance { it.copy(appThemeMode = mode) }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        mode.displayName,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = fg
+                                    )
+                                }
                             }
-                        )
+                        }
                     }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                // ── Terminal follow system ───────────────────────────────
+                SectionHeader("终端配色")
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ToggleRow(
+                        title = "终端跟随系统深色模式",
+                        subtitle = if (appearance.followSystemTheme) {
+                            "当前：${if (systemDark) "暗色" else "白底黑字"}（自定义主题优先）"
+                        } else {
+                            "系统深色时用暗色主题，浅色时用白底黑字"
+                        },
+                        checked = appearance.followSystemTheme,
+                        onCheckedChange = {
+                            store.updateAppearance { a -> a.copy(followSystemTheme = it) }
+                        }
+                    )
                 }
 
                 Spacer(Modifier.height(28.dp))
 
                 // ── Theme presets ────────────────────────────────────────
-                SectionHeader("主题")
+                SectionHeader("终端主题")
                 if (appearance.followSystemTheme && !appearance.isCustomScheme) {
                     Text(
                         "已开启跟随系统，下方手动选择将关闭该选项",
