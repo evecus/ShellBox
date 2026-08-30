@@ -13,6 +13,8 @@ import kotlinx.coroutines.*
  * - The emulator calls back [TerminalOutput.write] when it wants to send data back
  *   (e.g., response to device-attribute queries) — we forward those to the SSH output stream.
  * - Caller observes [onTextChanged] / [onTitleChanged] for Compose recomposition triggers.
+ * - [transcriptRows] controls the scrollback buffer size of the main screen.
+ * - [onBell] is invoked when the remote sends BEL (^G).
  */
 class SshTerminalBridge(
     private val session: SshSession,
@@ -21,7 +23,9 @@ class SshTerminalBridge(
     private val onTextChanged: () -> Unit,
     private val onTitleChanged: (String) -> Unit,
     private val onDisconnected: () -> Unit,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    transcriptRows: Int = TerminalEmulator.DEFAULT_TERMINAL_TRANSCRIPT_ROWS,
+    private val onBell: () -> Unit = {}
 ) {
     /**
      * 直接触发 View 重绘的回调，由外部注入 view.postInvalidate()。
@@ -53,7 +57,10 @@ class SshTerminalBridge(
 
         override fun onCopyTextToClipboard(text: String) {}
         override fun onPasteTextFromClipboard() {}
-        override fun onBell() {}
+        override fun onBell() {
+            // Prefer Main so callers can safely touch Vibrator / UI
+            scope.launch(Dispatchers.Main.immediate) { onBell() }
+        }
         override fun onColorsChanged() {}
     }
 
@@ -62,7 +69,9 @@ class SshTerminalBridge(
         override fun onTitleChanged(newTitle: String?) { onTitleChanged(newTitle ?: "") }
         override fun onCopyTextToClipboard(text: String) {}
         override fun onPasteTextFromClipboard() {}
-        override fun onBell() {}
+        override fun onBell() {
+            scope.launch(Dispatchers.Main.immediate) { onBell() }
+        }
         override fun onColorsChanged() {}
         override fun onTerminalCursorStateChange(state: Boolean) {}
         override fun getTerminalCursorStyle(): Int? = null
@@ -74,13 +83,17 @@ class SshTerminalBridge(
     }
 
     init {
+        val clampedTranscript = transcriptRows.coerceIn(
+            TerminalEmulator.TERMINAL_TRANSCRIPT_ROWS_MIN,
+            TerminalEmulator.TERMINAL_TRANSCRIPT_ROWS_MAX
+        )
         emulator = TerminalEmulator(
             terminalOutput,
             cols,
             rows,
             CELL_W,
             CELL_H,
-            null,
+            clampedTranscript,
             client
         )
         startReading()
