@@ -38,7 +38,6 @@ import com.shellbox.ui.theme.Blue40
 import com.shellbox.ui.theme.Blue90
 import com.shellbox.ui.theme.Blue95
 import com.shellbox.ui.util.LocalWindowWidthSizeClass
-import com.shellbox.ui.util.MaxFormContentWidth
 import com.shellbox.ui.util.gridColumnsFor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +53,7 @@ fun HomeScreen(
 ) {
     val servers by viewModel.servers.collectAsState()
     var showQuickConnectDialog by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
 
     Scaffold(
         topBar = {
@@ -79,7 +79,7 @@ fun HomeScreen(
                             "ShellBox",
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = scheme.onSurface
                         )
                     }
                 },
@@ -88,12 +88,14 @@ fun HomeScreen(
                         Icon(
                             Icons.Outlined.Settings,
                             contentDescription = "设置",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = scheme.onSurfaceVariant
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.White
+                    containerColor = scheme.surface,
+                    titleContentColor = scheme.onSurface,
+                    actionIconContentColor = scheme.onSurfaceVariant
                 )
             )
         },
@@ -110,7 +112,7 @@ fun HomeScreen(
                 Icon(Icons.Filled.Add, contentDescription = "添加", modifier = Modifier.size(26.dp))
             }
         },
-        containerColor = Color.White
+        containerColor = scheme.background
     ) { padding ->
         val widthSizeClass = LocalWindowWidthSizeClass.current
         val columns = gridColumnsFor(widthSizeClass)
@@ -122,9 +124,7 @@ fun HomeScreen(
                     .padding(padding),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
             ) {
-                item {
-                    ServerListHeader(count = servers.size)
-                }
+                item { ServerListHeader(count = servers.size) }
                 if (servers.isEmpty()) {
                     item { EmptyServersHint(onAdd = { showQuickConnectDialog = true }) }
                 } else {
@@ -143,9 +143,6 @@ fun HomeScreen(
                 }
             }
         } else {
-            // Tablet / expanded window: server cards flow into a multi-column grid
-            // instead of a single narrow list, so wide screens aren't wasted on
-            // one skinny stripe of cards down the left edge.
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 modifier = Modifier
@@ -260,6 +257,7 @@ private fun QuickConnectDialog(
     val hasConnectionInfo = host.isNotBlank() && username.isNotBlank() &&
         (authType == AuthType.PASSWORD || privateKeyValue.isNotBlank())
     val hasAllInfo = hasConnectionInfo && name.isNotBlank()
+    val scheme = MaterialTheme.colorScheme
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -268,20 +266,19 @@ private fun QuickConnectDialog(
                 .heightIn(max = 640.dp)
                 .shadow(4.dp, RoundedCornerShape(20.dp)),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = scheme.surface)
         ) {
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
-                // Header
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(Blue95),
+                            .background(scheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -296,21 +293,21 @@ private fun QuickConnectDialog(
                         Text(
                             "连接/添加服务器",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = scheme.onSurface
                         )
                         Text(
                             "直接输入连接信息",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = scheme.onSurfaceVariant
                         )
                     }
                 }
 
                 Spacer(Modifier.height(20.dp))
-                HorizontalDivider(color = Blue90)
+                HorizontalDivider(color = scheme.outlineVariant)
                 Spacer(Modifier.height(16.dp))
 
-                // Server name (optional)
                 ShellTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -321,7 +318,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Host + Port Row
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     ShellTextField(
                         value = host,
@@ -344,7 +340,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Username
                 ShellTextField(
                     value = username,
                     onValueChange = { username = it; testResult = null },
@@ -355,12 +350,10 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Auth type toggle
                 AuthTypeToggle(authType = authType, onAuthTypeChange = { authType = it; testResult = null })
 
                 Spacer(Modifier.height(10.dp))
 
-                // Auth fields
                 AnimatedContent(targetState = authType, label = "auth") { type ->
                     when (type) {
                         AuthType.PASSWORD -> {
@@ -405,7 +398,6 @@ private fun QuickConnectDialog(
                     }
                 }
 
-                // Test connection result banner
                 AnimatedVisibility(visible = testResult != null) {
                     val result = testResult
                     Column {
@@ -438,8 +430,6 @@ private fun QuickConnectDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 2x2 button grid: top-left 测试连接, top-right 快速连接,
-                // bottom-left 保存服务器, bottom-right 取消
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = {
@@ -455,7 +445,7 @@ private fun QuickConnectDialog(
                             .height(52.dp),
                         enabled = hasConnectionInfo && !isTesting,
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Blue90),
+                        border = BorderStroke(1.dp, scheme.outlineVariant),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Blue40)
                     ) {
                         if (isTesting) {
@@ -501,7 +491,7 @@ private fun QuickConnectDialog(
                             .height(52.dp),
                         enabled = hasAllInfo && !isSaving,
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Blue90),
+                        border = BorderStroke(1.dp, scheme.outlineVariant),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Blue40)
                     ) {
                         if (isSaving) {
@@ -522,13 +512,13 @@ private fun QuickConnectDialog(
                             .weight(1f)
                             .height(52.dp),
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFDDE3EA))
+                        border = BorderStroke(1.dp, scheme.outlineVariant)
                     ) {
                         Text(
                             "取消",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = scheme.onSurfaceVariant
                         )
                     }
                 }
@@ -546,6 +536,7 @@ private fun ServerCard(
     onOpenFiles: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
 
     Card(
         modifier = Modifier
@@ -553,8 +544,8 @@ private fun ServerCard(
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .shadow(1.dp, RoundedCornerShape(16.dp)),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFF0F0F3))
+        colors = CardDefaults.cardColors(containerColor = scheme.surface),
+        border = BorderStroke(1.dp, scheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier
@@ -563,7 +554,6 @@ private fun ServerCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -589,13 +579,14 @@ private fun ServerCard(
                 Text(
                     server.name,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.onSurface
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${server.username}@${server.host}:${server.port}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = scheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -614,18 +605,14 @@ private fun ServerCard(
                 }
             }
 
-            // Action buttons
             IconButton(onClick = onOpenFiles, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Outlined.Folder, null, tint = Blue40,
-                    modifier = Modifier.size(18.dp))
+                Icon(Icons.Outlined.Folder, null, tint = Blue40, modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Outlined.Edit, null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp))
+                Icon(Icons.Outlined.Edit, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(18.dp))
+                Icon(Icons.Outlined.Delete, null, tint = scheme.error, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -659,15 +646,23 @@ private fun EmptyServersHint(onAdd: () -> Unit) {
             modifier = Modifier
                 .size(80.dp)
                 .clip(CircleShape)
-                .background(Blue95),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Outlined.Computer, null, tint = Blue40, modifier = Modifier.size(40.dp))
         }
         Spacer(Modifier.height(16.dp))
-        Text("还没有保存的服务器", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            "还没有保存的服务器",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
         Spacer(Modifier.height(6.dp))
-        Text("点击右下角「+」按钮添加常用服务器", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "点击右下角「+」按钮添加常用服务器",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
