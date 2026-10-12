@@ -1,13 +1,7 @@
 package com.shellbox.ui.terminal
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -123,11 +117,21 @@ fun TerminalScreen(
 
         val imeHeightPx = remember { mutableFloatStateOf(0f) }
         val imeVisible by remember { derivedStateOf { imeHeightPx.floatValue > 0.5f } }
+        // 虚拟键盘与 IME 同步显隐：跟随同一份逐帧 insets 数据
+        var vkeyVisible by remember { mutableStateOf(false) }
+        var lastImeHeight by remember { mutableFloatStateOf(0f) }
+        var imeAnimating by remember { mutableStateOf(false) }
 
         DisposableEffect(view) {
             val callback = object : WindowInsetsAnimationCompat.Callback(
                 WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_STOP
             ) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        imeAnimating = true
+                    }
+                }
+
                 override fun onProgress(
                     insets: WindowInsetsCompat,
                     runningAnimations: MutableList<WindowInsetsAnimationCompat>
@@ -136,21 +140,38 @@ fun TerminalScreen(
                         it.typeMask and WindowInsetsCompat.Type.ime() != 0
                     }
                     if (imeRunning) {
-                        imeHeightPx.floatValue = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                        val h = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                        // 键盘弹出的第一帧显示虚拟键盘，收起的第一帧隐藏，实现同步
+                        if (h > lastImeHeight + 0.5f) {
+                            vkeyVisible = true
+                        } else if (h < lastImeHeight - 0.5f) {
+                            vkeyVisible = false
+                        }
+                        lastImeHeight = h
+                        imeHeightPx.floatValue = h
                     }
                     return insets
                 }
 
                 override fun onEnd(animation: WindowInsetsAnimationCompat) {
                     if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) {
+                        imeAnimating = false
                         val finalInsets = ViewCompat.getRootWindowInsets(view)
-                        imeHeightPx.floatValue =
-                            finalInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.toFloat() ?: 0f
+                        val h = finalInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom?.toFloat() ?: 0f
+                        // 输入法切换等场景下 IME 仍可见时，恢复虚拟键盘
+                        vkeyVisible = h > 0.5f
+                        lastImeHeight = h
+                        imeHeightPx.floatValue = h
                     }
                 }
             }
             val applyListener = OnApplyWindowInsetsListener { _, insets ->
-                imeHeightPx.floatValue = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                if (!imeAnimating) {
+                    val h = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom.toFloat()
+                    vkeyVisible = h > 0.5f
+                    lastImeHeight = h
+                    imeHeightPx.floatValue = h
+                }
                 insets
             }
             ViewCompat.setWindowInsetsAnimationCallback(view, callback)
@@ -161,12 +182,7 @@ fun TerminalScreen(
             }
         }
 
-        val animatedImeHeightPx by animateFloatAsState(
-            targetValue = imeHeightPx.floatValue,
-            animationSpec = tween(durationMillis = 180),
-            label = "ime_height"
-        )
-        val imeHeightDp = with(density) { animatedImeHeightPx.toDp() }
+        val imeHeightDp = with(density) { imeHeightPx.floatValue.toDp() }
 
         val drawTickState = remember { mutableLongStateOf(0L) }
         val activeSessionId = uiState.activeTab?.sessionId
@@ -222,11 +238,7 @@ fun TerminalScreen(
                     }
                 }
 
-                AnimatedVisibility(
-                    visible = imeVisible && vkeyLayout.hasAnyKey,
-                    enter = fadeIn(tween(150)) + expandVertically(tween(150)),
-                    exit = fadeOut(tween(120)) + shrinkVertically(tween(120))
-                ) {
+                if (vkeyVisible && vkeyLayout.hasAnyKey) {
                     Column {
                         HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
                         DynamicVirtualKeyboard(
@@ -381,7 +393,7 @@ private fun DynamicVirtualKeyboard(
     Column(
         modifier = modifier
             .background(scheme.surface)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         if (layout.row1.isNotEmpty()) {
