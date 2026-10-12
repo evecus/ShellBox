@@ -116,7 +116,6 @@ fun TerminalScreen(
         val density = LocalDensity.current
 
         val imeHeightPx = remember { mutableFloatStateOf(0f) }
-        val imeVisible by remember { derivedStateOf { imeHeightPx.floatValue > 0.5f } }
         // 虚拟键盘与 IME 同步显隐：跟随同一份逐帧 insets 数据
         var vkeyVisible by remember { mutableStateOf(false) }
         var lastImeHeight by remember { mutableFloatStateOf(0f) }
@@ -228,7 +227,9 @@ fun TerminalScreen(
                                         focusRequester.requestFocus()
                                         keyboardController?.show()
                                     },
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(horizontal = 8.dp),
                                     fontSizeSp = fontSize,
                                     terminalFont = terminalFont,
                                     appearance = appearance
@@ -295,22 +296,15 @@ fun TerminalScreen(
                 )
             }
 
-            val activeTabForReconnect = uiState.activeTab
-            if (activeTabForReconnect?.isAutoReconnecting == true) {
-                AutoReconnectBanner(
-                    attempt = activeTabForReconnect.reconnectAttempt,
-                    modifier = Modifier.align(Alignment.TopCenter)
-                )
-            }
-
-            if (isDisconnected && activeTabForReconnect?.isAutoReconnecting != true) {
+            // 断开连接时显示悬浮重连按钮；键盘弹出时随 imeHeight 上移，保证始终可见可点
+            if (isDisconnected) {
                 ReconnectFab(
                     onClick = { viewModel.reconnect(uiState.activeTabIndex) },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(
                             end = 20.dp,
-                            bottom = if (imeVisible && vkeyLayout.hasAnyKey) 8.dp else 24.dp
+                            bottom = imeHeightDp + if (vkeyVisible && vkeyLayout.hasAnyKey) 14.dp else 24.dp
                         )
                 )
             }
@@ -325,34 +319,6 @@ fun TerminalScreen(
                 showNewTerminalSheet = false
                 viewModel.connectServer(server)
             }
-        )
-    }
-}
-
-@Composable
-private fun AutoReconnectBanner(
-    attempt: Int,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .padding(top = 12.dp)
-            .shadow(4.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
-            .background(Blue40)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        androidx.compose.material3.CircularProgressIndicator(
-            modifier = Modifier.size(14.dp),
-            strokeWidth = 2.dp,
-            color = Color.White
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = "连接已断开，正在重连…（第 $attempt 次）",
-            color = Color.White,
-            fontSize = 13.sp
         )
     }
 }

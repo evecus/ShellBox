@@ -12,17 +12,13 @@ import com.shellbox.data.model.Server
 import com.shellbox.data.repository.ServerRepository
 import com.shellbox.ssh.SshManager
 import com.shellbox.ssh.SshResult
-import com.shellbox.ssh.SshSession
 import com.shellbox.ssh.SshTerminalBridge
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.math.min
-import kotlin.math.pow
 
 /** Which kind of connection info a tab was opened with — lets other screens (e.g. SFTP) reconnect using the same credentials. */
 sealed class ConnectionSource {
@@ -40,10 +36,7 @@ data class TabState(
     val isDisconnected: Boolean = false,
     val source: ConnectionSource? = null,
     // Incremented every time bridge notifies text changed → triggers recomposition
-    val renderTick: Long = 0L,
-    // Set while an automatic reconnect attempt is in flight after an unexpected disconnect.
-    val isAutoReconnecting: Boolean = false,
-    val reconnectAttempt: Int = 0
+    val renderTick: Long = 0L
 )
 
 data class TerminalUiState(
@@ -52,10 +45,6 @@ data class TerminalUiState(
 ) {
     val activeTab: TabState? get() = tabs.getOrNull(activeTabIndex)
 }
-
-private const val MAX_AUTO_RECONNECT_ATTEMPTS = 6
-private const val BASE_RECONNECT_DELAY_MS = 1000L
-private const val MAX_RECONNECT_DELAY_MS = 30_000L
 
 @HiltViewModel
 class TerminalViewModel @Inject constructor(
@@ -76,9 +65,6 @@ class TerminalViewModel @Inject constructor(
     /** Map tabId -> bridge (holds TerminalEmulator + SSH streams) */
     private val bridges = mutableMapOf<String, SshTerminalBridge>()
     private val reconnectMap = mutableMapOf<String, suspend () -> SshResult>()
-
-    /** Auto-reconnect retry jobs, keyed by tabId — cancelled on manual reconnect/close/user navigation away. */
-    private val autoReconnectJobs = mutableMapOf<String, Job>()
 
     /**
      * 每个 tab 的直接重绘回调（view.postInvalidate()）。
@@ -124,7 +110,7 @@ class TerminalViewModel @Inject constructor(
         _uiState.update { it.copy(tabs = newTabs, activeTabIndex = newTabs.lastIndex) }
     }
 
-    private fun doConnect(tabId: String, connectFn: suspend () -> SshResult, isAutoRetry: Boolean = false) {
+    private fun doConnect(tabId: String, connectFn: suspend () -> SshResult) {
         reconnectMap[tabId] = connectFn
         viewModelScope.launch {
             val result = connectFn()
@@ -145,7 +131,6 @@ class TerminalViewModel @Inject constructor(
                         },
                         onDisconnected = {
                             updateTab(tabId) { copy(isConnected = false, isDisconnected = true) }
-                            scheduleAutoReconnect(tabId)
                         },
                         scope = viewModelScope,
                         transcriptRows = scrollback,
@@ -157,20 +142,13 @@ class TerminalViewModel @Inject constructor(
                     updateTab(tabId) {
                         copy(
                             isConnecting = false, isConnected = true, isDisconnected = false,
-                            errorMessage = null, isAutoReconnecting = false, reconnectAttempt = 0
+                            errorMessage = null
                         )
                     }
                 }
                 is SshResult.Error -> {
-                    if (isAutoRetry) {
-                        // Auto-retry failed again — let scheduleAutoReconnect() decide whether to
-                        // try again or give up; don't clobber isAutoReconnecting here.
-                        updateTab(tabId) { copy(isConnecting = false, errorMessage = result.message) }
-                        scheduleAutoReconnect(tabId)
-                    } else {
-                        updateTab(tabId) {
-                            copy(isConnecting = false, errorMessage = result.message, isAutoReconnecting = false)
-                        }
+                    updateTab(tabId) {
+                        copy(isConnecting = false, errorMessage = result.message)
                     }
                 }
             }
@@ -212,37 +190,6 @@ class TerminalViewModel @Inject constructor(
             }
         } catch (_: Exception) {
             // Ignore devices without vibrator permission / capability
-        }
-    }
-
-    /**
-     * Schedules an automatic reconnect attempt with exponential backoff after an
-     * unexpected disconnect (network drop, server restart, etc.). Does nothing if
-     * the tab was already closed, or if [MAX_AUTO_RECONNECT_ATTEMPTS] has been reached
-     * (at which point the user sees a manual "重新连接" option instead).
-     */
-    private fun scheduleAutoReconnect(tabId: String) {
-        val tab = _uiState.value.tabs.find { it.sessionId == tabId } ?: return
-        val reconnectFn = reconnectMap[tabId] ?: return
-        val nextAttempt = tab.reconnectAttempt + 1
-        if (nextAttempt > MAX_AUTO_RECONNECT_ATTEMPTS) {
-            updateTab(tabId) { copy(isAutoReconnecting = false) }
-            return
-        }
-
-        autoReconnectJobs[tabId]?.cancel()
-        val delayMs = min(
-            (BASE_RECONNECT_DELAY_MS * 2.0.pow(nextAttempt - 1)).toLong(),
-            MAX_RECONNECT_DELAY_MS
-        )
-        updateTab(tabId) { copy(isAutoReconnecting = true, reconnectAttempt = nextAttempt, isConnecting = false) }
-        autoReconnectJobs[tabId] = viewModelScope.launch {
-            kotlinx.coroutines.delay(delayMs)
-            // Tab may have been closed or manually reconnected while we were waiting.
-            if (_uiState.value.tabs.none { it.sessionId == tabId }) return@launch
-            bridges.remove(tabId)
-            updateTab(tabId) { copy(isConnecting = true) }
-            doConnect(tabId, reconnectFn, isAutoRetry = true)
         }
     }
 
@@ -349,7 +296,6 @@ class TerminalViewModel @Inject constructor(
         val tabs = _uiState.value.tabs.toMutableList()
         val tabId = tabs.getOrNull(index)?.sessionId ?: return
         bridges.remove(tabId)
-        autoReconnectJobs.remove(tabId)?.cancel()
         reconnectMap.remove(tabId)
         viewModelScope.launch(Dispatchers.IO) {
             try { sshManager.disconnect(tabId) } catch (_: Exception) {}
@@ -365,15 +311,13 @@ class TerminalViewModel @Inject constructor(
         }
     }
 
-    /** Manual reconnect (user tapped "重新连接") — cancels any pending auto-retry and tries immediately. */
+    /** Manual reconnect (user tapped "重新连接") — tries immediately. */
     fun reconnect(tabIndex: Int) {
         val tab = _uiState.value.tabs.getOrNull(tabIndex) ?: return
         val tabId = tab.sessionId
-        autoReconnectJobs.remove(tabId)?.cancel()
         bridges.remove(tabId)
         updateTab(tabId) {
-            copy(isConnecting = true, isDisconnected = false, errorMessage = null,
-                isAutoReconnecting = false, reconnectAttempt = 0)
+            copy(isConnecting = true, isDisconnected = false, errorMessage = null)
         }
         val reconnectFn = reconnectMap[tabId] ?: return
         doConnect(tabId, reconnectFn)
@@ -381,7 +325,6 @@ class TerminalViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        autoReconnectJobs.values.forEach { it.cancel() }
         sshManager.disconnectAll()
     }
 }
